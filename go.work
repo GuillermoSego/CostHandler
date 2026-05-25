@@ -1,0 +1,7 @@
+go 1.26.3
+
+use (
+	./CostHandler_agent
+	./CostHandler_bot
+	./CostHandler_mcp
+)

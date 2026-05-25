@@ -1,0 +1,33 @@
+package config
+
+import "os"
+
+type Config struct {
+	TelegramToken string
+	OpenAIKey     string
+	DBPath        string
+	ServerPort    string
+}
+
+func NewConfig() *Config {
+	port := os.Getenv("SERVER_PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	telegramToken := os.Getenv("TELEGRAM_TOKEN")
+
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./expenses.db"
+	}
+
+	openaiKey := os.Getenv("OPENAI_API_KEY")
+
+	return &Config{
+		TelegramToken: telegramToken,
+		OpenAIKey:     openaiKey,
+		DBPath:        dbPath,
+		ServerPort:    port,
+	}
+}
