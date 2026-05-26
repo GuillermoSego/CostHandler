@@ -49,10 +49,15 @@ func main() {
 	svc := service.NewExpenseService(repo)
 	expenseHandler := handler.NewExpenseHandler(svc)
 
-	// ========== 3. HTTP SERVER (API JSON) ==========
-	// ServeMux es el router — conecta URLs a handlers
+	// ========== 3. HTTP SERVER (API JSON + DASHBOARD) ==========
 	mux := http.NewServeMux()
 	expenseHandler.RegisterRoutes(mux)
+
+	dashHandler, err := handler.NewDashboardHandler()
+	if err != nil {
+		log.Fatalf("Error creando dashboard handler: %v", err)
+	}
+	dashHandler.RegisterRoutes(mux)
 
 	// ========== 4. AGENT (OpenAI) ==========
 	// Cliente de OpenAI → Agent que clasifica mensajes
@@ -60,7 +65,7 @@ func main() {
 	expenseAgent := agent.NewAgent(classifier)
 
 	// ========== 5. BOT DE TELEGRAM ==========
-	telegramBot, err := bot.NewBot(cfg.TelegramToken, expenseAgent)
+	telegramBot, err := bot.NewBot(cfg.TelegramToken, expenseAgent, cfg.BaseURL, svc)
 	if err != nil {
 		log.Fatalf("Error creando bot: %v", err)
 	}

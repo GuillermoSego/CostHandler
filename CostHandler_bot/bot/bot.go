@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/GuillermoSego/costhandler/agent/agent"
+	"github.com/GuillermoSego/costhandler/mcp/models"
+	"github.com/GuillermoSego/costhandler/mcp/service"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -14,13 +16,15 @@ import (
 // - api: la conexión con Telegram (para recibir y enviar mensajes)
 // - agent: el cerebro que clasifica gastos (Fase 2)
 type Bot struct {
-	api   *tgbotapi.BotAPI
-	agent *agent.Agent
+	api          *tgbotapi.BotAPI
+	agent        *agent.Agent
+	dashboardURL string
+	svc          *service.ExpenseService
 }
 
 // NewBot crea la conexión con Telegram usando el token de BotFather.
 // Si el token es inválido, Telegram rechaza y devuelve error.
-func NewBot(token string, agent *agent.Agent) (*Bot, error) {
+func NewBot(token string, agent *agent.Agent, dashboardURL string, svc *service.ExpenseService) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to telegram: %w", err)
@@ -29,8 +33,10 @@ func NewBot(token string, agent *agent.Agent) (*Bot, error) {
 	log.Printf("Bot conectado como: @%s", api.Self.UserName)
 
 	return &Bot{
-		api:   api,
-		agent: agent,
+		api:          api,
+		agent:        agent,
+		dashboardURL: dashboardURL,
+		svc:          svc,
 	}, nil
 }
 
@@ -64,6 +70,12 @@ func (b *Bot) Start() {
 // handleUpdate decide qué hacer con cada mensaje.
 // Si empieza con "/" es un comando, si no es un gasto.
 func (b *Bot) handleUpdate(message *tgbotapi.Message) {
+	user := message.From.UserName
+	if user == "" {
+		user = message.From.FirstName
+	}
+	log.Printf("Mensaje recibido de @%s: %s", user, message.Text)
+
 	if message.IsCommand() {
 		b.handleCommand(message)
 	} else {
@@ -76,6 +88,12 @@ func (b *Bot) handleCommand(message *tgbotapi.Message) {
 	var response string
 
 	// message.Command() devuelve el comando SIN el "/" — "start", "ayuda", etc.
+	user := message.From.UserName
+	if user == "" {
+		user = message.From.FirstName
+	}
+	log.Printf("Comando /%s de @%s", message.Command(), user)
+
 	switch message.Command() {
 	case "start":
 		response = "¡Hola! Soy CostHandler, tu asistente de gastos.\n\n" +
@@ -84,17 +102,29 @@ func (b *Bot) handleCommand(message *tgbotapi.Message) {
 			"Comandos:\n" +
 			"/resumen — resumen del mes\n" +
 			"/ultimos — últimos 5 gastos\n" +
+			"/dashboard — ver dashboard de gastos\n" +
 			"/ayuda — ver esta lista"
 	case "ayuda":
 		response = "Comandos disponibles:\n" +
 			"/start — bienvenida\n" +
 			"/resumen — resumen del mes\n" +
 			"/ultimos — últimos 5 gastos\n" +
+			"/dashboard — ver dashboard de gastos\n" +
 			"/ayuda — ver esta lista"
 	case "resumen":
-		response = "Próximamente: resumen del mes"
+		b.handleResumen(message)
+		return
 	case "ultimos":
-		response = "Próximamente: últimos gastos"
+		b.handleUltimos(message)
+		return
+	case "dashboard":
+		url := b.dashboardURL + "/dashboard"
+		if strings.HasPrefix(b.dashboardURL, "https://") {
+			b.sendMessageWithButton(message.Chat.ID, "Abre el dashboard para ver tus gastos.", "Abrir Dashboard", url)
+		} else {
+			b.sendMessage(message.Chat.ID, "Abre el dashboard para ver tus gastos:\n"+url)
+		}
+		return
 	default:
 		response = "Comando no reconocido. Usa /ayuda para ver los disponibles."
 	}
@@ -110,16 +140,28 @@ func (b *Bot) handleExpense(message *tgbotapi.Message) {
 		user = message.From.FirstName // Fallback si no tiene username
 	}
 
-	// Llamamos al agent para clasificar el mensaje
-	// context.Background() = context raíz, sin timeout por ahora
 	result, err := b.agent.ProcessMessage(context.Background(), user, message.Text)
 	if err != nil {
+		log.Printf("Error clasificando gasto de @%s: %v", user, err)
 		b.sendMessage(message.Chat.ID, "No pude clasificar ese gasto: "+err.Error())
 		return
 	}
+	log.Printf("Gasto clasificado: $%.2f %s (%s) — confianza: %.0f%%", result.Amount, result.Description, result.Category, result.Confidence*100)
 
-	// Formateamos la respuesta
-	// strings.Builder es la forma eficiente de concatenar strings en Go
+	expense := &models.Expense{
+		User:        user,
+		Amount:      result.Amount,
+		Description: result.Description,
+		Category:    models.Category{Name: result.Category},
+		RawMessage:  message.Text,
+	}
+	if err := b.svc.Create(expense); err != nil {
+		log.Printf("Error guardando gasto de @%s: %v", user, err)
+		b.sendMessage(message.Chat.ID, "Gasto clasificado pero no se pudo guardar: "+err.Error())
+		return
+	}
+	log.Printf("Gasto guardado en DB para @%s", user)
+
 	var sb strings.Builder
 	sb.WriteString("Gasto registrado:\n\n")
 	sb.WriteString(fmt.Sprintf("💰 Monto: $%.2f\n", result.Amount))
@@ -130,10 +172,86 @@ func (b *Bot) handleExpense(message *tgbotapi.Message) {
 	b.sendMessage(message.Chat.ID, sb.String())
 }
 
-// sendMessage envía un mensaje de texto a un chat de Telegram.
-// Lo separamos para no repetir el manejo de error en cada handler.
+func (b *Bot) handleResumen(message *tgbotapi.Message) {
+	data, err := b.svc.GetDashboardData("month", "")
+	if err != nil {
+		log.Printf("Error obteniendo resumen: %v", err)
+		b.sendMessage(message.Chat.ID, "Error obteniendo resumen: "+err.Error())
+		return
+	}
+
+	if data.ExpenseCount == 0 {
+		b.sendMessage(message.Chat.ID, "No hay gastos registrados este mes.")
+		return
+	}
+	log.Printf("Resumen generado: %d gastos, $%.2f total", data.ExpenseCount, data.TotalAmount)
+
+	var sb strings.Builder
+	sb.WriteString("Resumen del mes:\n\n")
+	sb.WriteString(fmt.Sprintf("💰 Total: $%.2f\n", data.TotalAmount))
+	sb.WriteString(fmt.Sprintf("📊 Gastos: %d\n", data.ExpenseCount))
+	sb.WriteString(fmt.Sprintf("📅 Promedio diario: $%.2f\n", data.DailyAverage))
+	if data.TopCategory != "" {
+		sb.WriteString(fmt.Sprintf("🏆 Categoría top: %s ($%.2f)\n", data.TopCategory, data.TopCategoryAmt))
+	}
+
+	if len(data.ByCategory) > 0 {
+		sb.WriteString("\nPor categoría:\n")
+		for _, c := range data.ByCategory {
+			sb.WriteString(fmt.Sprintf("  %s: $%.2f (%d)\n", c.Category, c.Total, c.Count))
+		}
+	}
+
+	b.sendMessage(message.Chat.ID, sb.String())
+}
+
+func (b *Bot) handleUltimos(message *tgbotapi.Message) {
+	filter := models.ExpenseFilter{Period: "month"}
+	expenses, err := b.svc.ListFiltered(filter)
+	if err != nil {
+		log.Printf("Error obteniendo últimos gastos: %v", err)
+		b.sendMessage(message.Chat.ID, "Error obteniendo gastos: "+err.Error())
+		return
+	}
+	log.Printf("Últimos gastos: %d resultados", len(expenses))
+
+	if len(expenses) == 0 {
+		b.sendMessage(message.Chat.ID, "No hay gastos registrados este mes.")
+		return
+	}
+
+	limit := 5
+	if len(expenses) < limit {
+		limit = len(expenses)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Últimos %d gastos:\n\n", limit))
+	for i, e := range expenses[:limit] {
+		date := e.CreatedAt
+		if len(date) >= 10 {
+			date = date[:10]
+		}
+		sb.WriteString(fmt.Sprintf("%d. $%.2f — %s (%s) — %s\n", i+1, e.Amount, e.Description, e.Category.Name, date))
+	}
+
+	b.sendMessage(message.Chat.ID, sb.String())
+}
+
 func (b *Bot) sendMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
+	if _, err := b.api.Send(msg); err != nil {
+		log.Printf("Error enviando mensaje: %v", err)
+	}
+}
+
+func (b *Bot) sendMessageWithButton(chatID int64, text, buttonLabel, url string) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL(buttonLabel, url),
+		),
+	)
 	if _, err := b.api.Send(msg); err != nil {
 		log.Printf("Error enviando mensaje: %v", err)
 	}
