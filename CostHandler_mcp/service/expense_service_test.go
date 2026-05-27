@@ -1,7 +1,9 @@
 package service
 
 import (
+	"math"
 	"testing"
+	"time"
 
 	"github.com/GuillermoSego/costhandler/mcp/database"
 	"github.com/GuillermoSego/costhandler/mcp/models"
@@ -253,5 +255,184 @@ func TestGetDashboardData(t *testing.T) {
 	}
 	if data.DailyAverage <= 0 {
 		t.Errorf("expected positive daily average, got %f", data.DailyAverage)
+	}
+}
+
+func TestCreateInstallments(t *testing.T) {
+	tests := []struct {
+		name         string
+		totalAmount  float64
+		installments int
+		wantErr      bool
+		wantCount    int
+	}{
+		{
+			name:         "6 meses sin intereses",
+			totalAmount:  5000,
+			installments: 6,
+			wantCount:    6,
+		},
+		{
+			name:         "12 meses",
+			totalAmount:  12000,
+			installments: 12,
+			wantCount:    12,
+		},
+		{
+			name:         "3 meses con residuo",
+			totalAmount:  100,
+			installments: 3,
+			wantCount:    3,
+		},
+		{
+			name:         "monto indivisible",
+			totalAmount:  10,
+			installments: 3,
+			wantCount:    3,
+		},
+		{
+			name:         "1 mensualidad debe fallar",
+			totalAmount:  1000,
+			installments: 1,
+			wantErr:      true,
+		},
+		{
+			name:         "0 mensualidades debe fallar",
+			totalAmount:  1000,
+			installments: 0,
+			wantErr:      true,
+		},
+		{
+			name:         "49 mensualidades debe fallar",
+			totalAmount:  1000,
+			installments: 49,
+			wantErr:      true,
+		},
+		{
+			name:         "monto cero debe fallar",
+			totalAmount:  0,
+			installments: 6,
+			wantErr:      true,
+		},
+		{
+			name:         "monto negativo debe fallar",
+			totalAmount:  -500,
+			installments: 6,
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := setupTestService(t)
+			expense := &models.Expense{
+				User:        "guillermo",
+				Description: "Audífonos",
+				Category:    models.Category{Name: "compras"},
+				RawMessage:  "5000 audífonos a 6 meses",
+			}
+
+			result, err := svc.CreateInstallments(expense, tt.totalAmount, tt.installments)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CreateInstallments() error = %v, wantErr = %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			if len(result) != tt.wantCount {
+				t.Errorf("expected %d installments, got %d", tt.wantCount, len(result))
+			}
+		})
+	}
+}
+
+func TestCreateInstallments_AmountSum(t *testing.T) {
+	svc := setupTestService(t)
+	expense := &models.Expense{
+		User:        "guillermo",
+		Description: "Audífonos",
+		Category:    models.Category{Name: "compras"},
+		RawMessage:  "5000 audífonos a 6 meses",
+	}
+
+	result, err := svc.CreateInstallments(expense, 5000, 6)
+	if err != nil {
+		t.Fatalf("CreateInstallments() error = %v", err)
+	}
+
+	var total float64
+	for _, e := range result {
+		total += e.Amount
+	}
+	total = math.Round(total*100) / 100
+
+	if total != 5000 {
+		t.Errorf("sum of installments = %.2f, want 5000.00", total)
+	}
+}
+
+func TestCreateInstallments_DateProgression(t *testing.T) {
+	svc := setupTestService(t)
+	expense := &models.Expense{
+		User:        "guillermo",
+		Description: "Laptop",
+		Category:    models.Category{Name: "compras"},
+		RawMessage:  "20000 laptop a 12 meses",
+	}
+
+	result, err := svc.CreateInstallments(expense, 20000, 12)
+	if err != nil {
+		t.Fatalf("CreateInstallments() error = %v", err)
+	}
+
+	now := time.Now()
+	for i, e := range result {
+		expectedDate := now.AddDate(0, i, 0).Format("2006-01")
+		gotDate := e.CreatedAt[:7]
+		if gotDate != expectedDate {
+			t.Errorf("installment %d: expected month %s, got %s", i+1, expectedDate, gotDate)
+		}
+	}
+}
+
+func TestCreateInstallments_GroupAndNumbers(t *testing.T) {
+	svc := setupTestService(t)
+	expense := &models.Expense{
+		User:        "guillermo",
+		Description: "TV",
+		Category:    models.Category{Name: "compras"},
+		RawMessage:  "15000 tv a 3 meses",
+	}
+
+	result, err := svc.CreateInstallments(expense, 15000, 3)
+	if err != nil {
+		t.Fatalf("CreateInstallments() error = %v", err)
+	}
+
+	groupID := result[0].InstallmentGroup
+	if groupID == "" {
+		t.Fatal("expected non-empty installment group ID")
+	}
+
+	for i, e := range result {
+		if e.InstallmentGroup != groupID {
+			t.Errorf("installment %d: group = %s, want %s", i+1, e.InstallmentGroup, groupID)
+		}
+		if e.InstallmentNumber != i+1 {
+			t.Errorf("installment %d: number = %d, want %d", i+1, e.InstallmentNumber, i+1)
+		}
+		if e.TotalInstallments != 3 {
+			t.Errorf("installment %d: total = %d, want 3", i+1, e.TotalInstallments)
+		}
+	}
+
+	expenses, err := svc.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(expenses) != 3 {
+		t.Errorf("expected 3 expenses in DB, got %d", len(expenses))
 	}
 }

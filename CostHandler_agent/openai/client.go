@@ -60,13 +60,19 @@ type chatResponse struct {
 // Le pedimos que responda SOLO con JSON — sin texto extra.
 const systemPrompt = `Eres un asistente que clasifica gastos personales.
 El usuario te va a enviar un mensaje describiendo un gasto.
-Tu trabajo es extraer: el monto, la categoría, y una descripción corta.
+Tu trabajo es extraer: el monto, la categoría, una descripción corta, y si es a meses sin intereses.
 
 Categorías válidas: supermercado, restaurantes, vivienda, servicios, transporte,
 salud, familia, suscripciones, entretenimiento, compras, ahorro, otros.
 
+Si el mensaje menciona "meses sin intereses", "a X meses", "X mensualidades", o similar:
+- "amount" debe ser el MONTO TOTAL de la compra
+- "installments" debe ser el número de meses (ej: 6, 12, 18)
+
+Si NO menciona meses sin intereses, usa "installments": 0.
+
 Responde ÚNICAMENTE con JSON válido, sin markdown, sin texto extra:
-{"amount": 150.00, "category": "restaurantes", "description": "Tacos al pastor", "confidence": 0.95}
+{"amount": 5000.00, "category": "compras", "description": "Audífonos", "confidence": 0.95, "installments": 6}
 
 Si no puedes determinar el monto, usa 0 y confidence bajo.
 Si no puedes determinar la categoría, usa "otros" y confidence bajo.`

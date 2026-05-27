@@ -43,6 +43,11 @@ func main() {
 		log.Fatalf("Error creando tablas: %v", err)
 	}
 
+	// Migraciones para columnas nuevas (mensualidades)
+	if err := database.RunMigrations(db); err != nil {
+		log.Fatalf("Error ejecutando migraciones: %v", err)
+	}
+
 	// Construimos la cadena: repository → service → handler
 	// Cada pieza recibe la anterior — dependency injection manual
 	repo := repository.NewSQLiteExpenseRepository(db)

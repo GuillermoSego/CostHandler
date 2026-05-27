@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/GuillermoSego/costhandler/agent/agent"
+	agentModels "github.com/GuillermoSego/costhandler/agent/models"
 	"github.com/GuillermoSego/costhandler/mcp/models"
 	"github.com/GuillermoSego/costhandler/mcp/service"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -164,6 +165,11 @@ func (b *Bot) handleExpense(message *tgbotapi.Message) {
 	}
 	log.Printf("Gasto clasificado: $%.2f %s (%s) — confianza: %.0f%%", result.Amount, result.Description, result.Category, result.Confidence*100)
 
+	if result.Installments >= 2 {
+		b.handleInstallmentExpense(message, user, result)
+		return
+	}
+
 	expense := &models.Expense{
 		User:        user,
 		Amount:      result.Amount,
@@ -183,6 +189,38 @@ func (b *Bot) handleExpense(message *tgbotapi.Message) {
 	sb.WriteString(fmt.Sprintf("💰 Monto: $%.2f\n", result.Amount))
 	sb.WriteString(fmt.Sprintf("📁 Categoría: %s\n", result.Category))
 	sb.WriteString(fmt.Sprintf("📝 Descripción: %s\n", result.Description))
+	sb.WriteString(fmt.Sprintf("🎯 Confianza: %.0f%%\n", result.Confidence*100))
+
+	b.sendMessage(message.Chat.ID, sb.String())
+}
+
+func (b *Bot) handleInstallmentExpense(message *tgbotapi.Message, user string, result *agentModels.ClassificationResult) {
+	expense := &models.Expense{
+		User:        user,
+		Description: result.Description,
+		Category:    models.Category{Name: result.Category},
+		RawMessage:  message.Text,
+	}
+
+	installments, err := b.svc.CreateInstallments(expense, result.Amount, result.Installments)
+	if err != nil {
+		log.Printf("Error creando mensualidades para @%s: %v", user, err)
+		b.sendMessage(message.Chat.ID, "No se pudieron registrar las mensualidades: "+err.Error())
+		return
+	}
+	log.Printf("Mensualidades creadas: %d pagos de $%.2f para @%s", len(installments), installments[0].Amount, user)
+
+	perMonth := installments[0].Amount
+	firstDate := installments[0].CreatedAt[:7]
+	lastDate := installments[len(installments)-1].CreatedAt[:7]
+
+	var sb strings.Builder
+	sb.WriteString("Compra a meses registrada:\n\n")
+	sb.WriteString(fmt.Sprintf("💰 Total: $%.2f\n", result.Amount))
+	sb.WriteString(fmt.Sprintf("📅 %d pagos de $%.2f\n", result.Installments, perMonth))
+	sb.WriteString(fmt.Sprintf("📁 Categoría: %s\n", result.Category))
+	sb.WriteString(fmt.Sprintf("📝 %s\n", result.Description))
+	sb.WriteString(fmt.Sprintf("🗓️ Período: %s a %s\n", formatMonth(firstDate), formatMonth(lastDate)))
 	sb.WriteString(fmt.Sprintf("🎯 Confianza: %.0f%%\n", result.Confidence*100))
 
 	b.sendMessage(message.Chat.ID, sb.String())
@@ -523,6 +561,24 @@ func buildInsightPrompt(data *models.DashboardData, budgets []models.Budget) str
 	}
 
 	return sb.String()
+}
+
+var monthNames = map[string]string{
+	"01": "enero", "02": "febrero", "03": "marzo", "04": "abril",
+	"05": "mayo", "06": "junio", "07": "julio", "08": "agosto",
+	"09": "septiembre", "10": "octubre", "11": "noviembre", "12": "diciembre",
+}
+
+func formatMonth(ym string) string {
+	parts := strings.Split(ym, "-")
+	if len(parts) != 2 {
+		return ym
+	}
+	name, ok := monthNames[parts[1]]
+	if !ok {
+		return ym
+	}
+	return name + " " + parts[0]
 }
 
 func nextWeekday(day time.Weekday, hour, minute int) time.Time {

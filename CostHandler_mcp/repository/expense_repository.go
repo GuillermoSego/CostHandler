@@ -10,8 +10,10 @@ import (
 
 type ExpenseRepository interface {
 	Create(expense *models.Expense) error
+	CreateBatch(expenses []*models.Expense) error
 	List() ([]models.Expense, error)
 	Delete(id int64) error
+	DeleteByGroup(groupID string) error
 	ListFiltered(filter models.ExpenseFilter) ([]models.Expense, error)
 	SumByCategory(from, to string) ([]models.CategorySummary, error)
 	SumByDay(from, to string) ([]models.DailySummary, error)
@@ -27,43 +29,80 @@ func NewSQLiteExpenseRepository(db *sql.DB) *SQLiteExpenseRepository {
 }
 
 func (r *SQLiteExpenseRepository) Create(expense *models.Expense) error {
-	_, err := r.db.Exec(
-		"INSERT INTO expenses (user, amount, description, category, raw_message) VALUES (?, ?, ?, ?, ?)",
-		expense.User,
-		expense.Amount,
-		expense.Description,
-		expense.Category.Name,
-		expense.RawMessage,
-	)
-	if err != nil {
+	if expense.CreatedAt != "" {
+		_, err := r.db.Exec(
+			`INSERT INTO expenses (user, amount, description, category, raw_message, created_at, installment_group, installment_number, total_installments)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			expense.User, expense.Amount, expense.Description, expense.Category.Name,
+			expense.RawMessage, expense.CreatedAt,
+			expense.InstallmentGroup, expense.InstallmentNumber, expense.TotalInstallments,
+		)
 		return err
 	}
+	_, err := r.db.Exec(
+		`INSERT INTO expenses (user, amount, description, category, raw_message, installment_group, installment_number, total_installments)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		expense.User, expense.Amount, expense.Description, expense.Category.Name,
+		expense.RawMessage,
+		expense.InstallmentGroup, expense.InstallmentNumber, expense.TotalInstallments,
+	)
+	return err
+}
 
-	return nil
+func (r *SQLiteExpenseRepository) CreateBatch(expenses []*models.Expense) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("comenzando transacción: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(
+		`INSERT INTO expenses (user, amount, description, category, raw_message, created_at, installment_group, installment_number, total_installments)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return fmt.Errorf("preparando statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, e := range expenses {
+		_, err := stmt.Exec(
+			e.User, e.Amount, e.Description, e.Category.Name,
+			e.RawMessage, e.CreatedAt,
+			e.InstallmentGroup, e.InstallmentNumber, e.TotalInstallments,
+		)
+		if err != nil {
+			return fmt.Errorf("insertando gasto: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *SQLiteExpenseRepository) DeleteByGroup(groupID string) error {
+	_, err := r.db.Exec("DELETE FROM expenses WHERE installment_group = ?", groupID)
+	return err
 }
 
 // List devuelve todos los gastos.
 func (r *SQLiteExpenseRepository) List() ([]models.Expense, error) {
 	// Columnas explícitas — si usas SELECT * y mañana agregas una columna, Scan se rompe.
 	rows, err := r.db.Query(
-		"SELECT id, user, amount, description, category, raw_message, created_at FROM expenses ORDER BY created_at DESC",
+		`SELECT id, user, amount, description, category, raw_message, created_at,
+		        installment_group, installment_number, total_installments
+		 FROM expenses ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
 	}
-	// defer = "ejecuta esto cuando la función termine". Cierra las filas para liberar recursos.
 	defer rows.Close()
 
-	// Creamos un slice vacío donde iremos agregando cada gasto.
 	var expenses []models.Expense
 
-	// rows.Next() mueve al siguiente registro. Devuelve false cuando no hay más.
 	for rows.Next() {
 		var expense models.Expense
 		var categoryName string
 
-		// Scan copia los valores de la fila actual a nuestras variables.
-		// El orden DEBE coincidir con las columnas del SELECT.
 		err := rows.Scan(
 			&expense.ID,
 			&expense.User,
@@ -72,15 +111,16 @@ func (r *SQLiteExpenseRepository) List() ([]models.Expense, error) {
 			&categoryName,
 			&expense.RawMessage,
 			&expense.CreatedAt,
+			&expense.InstallmentGroup,
+			&expense.InstallmentNumber,
+			&expense.TotalInstallments,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		// Convertimos el string de la DB al struct Category de Go.
 		expense.Category = models.Category{Name: categoryName}
 
-		// append agrega un elemento al slice (como push en JS o append en Python).
 		expenses = append(expenses, expense)
 	}
 
@@ -121,7 +161,9 @@ func (r *SQLiteExpenseRepository) ListFiltered(filter models.ExpenseFilter) ([]m
 		from, to = dateRange(filter.Period)
 	}
 
-	query := "SELECT id, user, amount, description, category, raw_message, created_at FROM expenses WHERE created_at >= ? AND created_at <= datetime(?, '+1 day')"
+	query := `SELECT id, user, amount, description, category, raw_message, created_at,
+	                 installment_group, installment_number, total_installments
+	          FROM expenses WHERE created_at >= ? AND created_at <= datetime(?, '+1 day')`
 	args := []any{from, to}
 
 	if filter.Category != "" {
@@ -149,6 +191,9 @@ func (r *SQLiteExpenseRepository) ListFiltered(filter models.ExpenseFilter) ([]m
 			&categoryName,
 			&expense.RawMessage,
 			&expense.CreatedAt,
+			&expense.InstallmentGroup,
+			&expense.InstallmentNumber,
+			&expense.TotalInstallments,
 		)
 		if err != nil {
 			return nil, err

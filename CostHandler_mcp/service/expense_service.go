@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/rand"
 	"fmt"
 	"math"
 	"slices"
@@ -73,6 +74,61 @@ func (s *ExpenseService) ListFiltered(filter models.ExpenseFilter) ([]models.Exp
 		return nil, fmt.Errorf("invalid category filter: %s", filter.Category)
 	}
 	return s.repo.ListFiltered(filter)
+}
+
+func (s *ExpenseService) CreateInstallments(expense *models.Expense, totalAmount float64, installments int) ([]*models.Expense, error) {
+	if installments < 2 || installments > 48 {
+		return nil, fmt.Errorf("número de mensualidades inválido: debe ser entre 2 y 48")
+	}
+	if totalAmount <= 0 {
+		return nil, fmt.Errorf("monto inválido: debe ser mayor a cero")
+	}
+	if expense.Description == "" {
+		return nil, fmt.Errorf("descripción requerida")
+	}
+	if !slices.Contains(validCategories, expense.Category.Name) {
+		return nil, fmt.Errorf("categoría inválida: %s", expense.Category.Name)
+	}
+
+	perInstallment := math.Floor(totalAmount*100/float64(installments)) / 100
+	remainder := math.Round((totalAmount-perInstallment*float64(installments))*100) / 100
+
+	groupID := generateGroupID()
+	now := time.Now()
+
+	var expenses []*models.Expense
+	for i := 0; i < installments; i++ {
+		amt := perInstallment
+		if i == 0 {
+			amt += remainder
+		}
+
+		date := now.AddDate(0, i, 0)
+
+		expenses = append(expenses, &models.Expense{
+			User:              expense.User,
+			Amount:            amt,
+			Description:       fmt.Sprintf("%s (%d/%d)", expense.Description, i+1, installments),
+			Category:          expense.Category,
+			RawMessage:        expense.RawMessage,
+			CreatedAt:         date.Format("2006-01-02 15:04:05"),
+			InstallmentGroup:  groupID,
+			InstallmentNumber: i + 1,
+			TotalInstallments: installments,
+		})
+	}
+
+	if err := s.repo.CreateBatch(expenses); err != nil {
+		return nil, fmt.Errorf("guardando mensualidades: %w", err)
+	}
+
+	return expenses, nil
+}
+
+func generateGroupID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 func (s *ExpenseService) GetDashboardData(period, category string) (*models.DashboardData, error) {
