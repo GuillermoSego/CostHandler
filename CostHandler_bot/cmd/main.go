@@ -74,7 +74,7 @@ func main() {
 	expenseAgent := agent.NewAgent(classifier)
 
 	// ========== 5. BOT DE TELEGRAM ==========
-	telegramBot, err := bot.NewBot(cfg.TelegramToken, expenseAgent, cfg.BaseURL, svc, budgetSvc)
+	telegramBot, err := bot.NewBot(cfg.TelegramToken, expenseAgent, cfg.BaseURL, svc, budgetSvc, cfg.AllowedUsers)
 	if err != nil {
 		log.Fatalf("Error creando bot: %v", err)
 	}

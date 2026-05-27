@@ -22,11 +22,12 @@ type Bot struct {
 	dashboardURL  string
 	svc           *service.ExpenseService
 	budgetSvc     *service.BudgetService
+	allowedUsers  map[string]bool
 	pendingBudget map[int64]string
 	mu            sync.Mutex
 }
 
-func NewBot(token string, agent *agent.Agent, dashboardURL string, svc *service.ExpenseService, budgetSvc *service.BudgetService) (*Bot, error) {
+func NewBot(token string, agent *agent.Agent, dashboardURL string, svc *service.ExpenseService, budgetSvc *service.BudgetService, allowedUsers []string) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to telegram: %w", err)
@@ -34,12 +35,18 @@ func NewBot(token string, agent *agent.Agent, dashboardURL string, svc *service.
 
 	log.Printf("Bot conectado como: @%s", api.Self.UserName)
 
+	allowed := make(map[string]bool, len(allowedUsers))
+	for _, u := range allowedUsers {
+		allowed[u] = true
+	}
+
 	return &Bot{
 		api:           api,
 		agent:         agent,
 		dashboardURL:  dashboardURL,
 		svc:           svc,
 		budgetSvc:     budgetSvc,
+		allowedUsers:  allowed,
 		pendingBudget: make(map[int64]string),
 	}, nil
 }
@@ -85,9 +92,22 @@ func (b *Bot) saveChatID(message *tgbotapi.Message) {
 	}
 }
 
+func (b *Bot) isAllowedUser(username string) bool {
+	if len(b.allowedUsers) == 0 {
+		return true
+	}
+	return b.allowedUsers[username]
+}
+
 func (b *Bot) handleUpdate(message *tgbotapi.Message) {
 	user := getUser(message)
 	log.Printf("Mensaje recibido de @%s: %s", user, message.Text)
+
+	if !b.isAllowedUser(user) {
+		log.Printf("Usuario no autorizado: @%s", user)
+		b.sendMessage(message.Chat.ID, "No estás autorizado para usar este bot.")
+		return
+	}
 
 	b.mu.Lock()
 	category, pending := b.pendingBudget[message.Chat.ID]
@@ -228,7 +248,7 @@ func (b *Bot) handleInstallmentExpense(message *tgbotapi.Message, user string, r
 
 func (b *Bot) handleResumen(message *tgbotapi.Message) {
 	user := getUser(message)
-	data, err := b.svc.GetDashboardData("month", "")
+	data, err := b.svc.GetDashboardData(user, "month", "")
 	if err != nil {
 		log.Printf("Error obteniendo resumen: %v", err)
 		b.sendMessage(message.Chat.ID, "Error obteniendo resumen: "+err.Error())
@@ -284,7 +304,8 @@ func (b *Bot) handleResumen(message *tgbotapi.Message) {
 }
 
 func (b *Bot) handleUltimos(message *tgbotapi.Message) {
-	filter := models.ExpenseFilter{Period: "month"}
+	user := getUser(message)
+	filter := models.ExpenseFilter{User: user, Period: "month"}
 	expenses, err := b.svc.ListFiltered(filter)
 	if err != nil {
 		log.Printf("Error obteniendo últimos gastos: %v", err)
@@ -444,7 +465,7 @@ func (b *Bot) sendWeeklySummaries() {
 	}
 
 	for _, chat := range chats {
-		data, err := b.svc.GetDashboardData("week", "")
+		data, err := b.svc.GetDashboardData(chat.User, "week", "")
 		if err != nil {
 			log.Printf("Error obteniendo datos semanales para @%s: %v", chat.User, err)
 			continue
