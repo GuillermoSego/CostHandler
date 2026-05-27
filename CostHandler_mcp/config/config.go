@@ -7,6 +7,7 @@ type Config struct {
 	OpenAIKey     string
 	DBPath        string
 	ServerPort    string
+	BaseURL       string
 }
 
 func NewConfig() *Config {
@@ -24,10 +25,16 @@ func NewConfig() *Config {
 
 	openaiKey := os.Getenv("OPENAI_API_KEY")
 
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:" + port
+	}
+
 	return &Config{
 		TelegramToken: telegramToken,
 		OpenAIKey:     openaiKey,
 		DBPath:        dbPath,
 		ServerPort:    port,
+		BaseURL:       baseURL,
 	}
 }

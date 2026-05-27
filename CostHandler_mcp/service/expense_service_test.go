@@ -177,3 +177,81 @@ func TestDelete_InvalidID(t *testing.T) {
 		t.Error("Delete(-5) should return error")
 	}
 }
+
+func TestListFiltered(t *testing.T) {
+	svc := setupTestService(t)
+
+	e1 := validExpense()
+	e2 := validExpense()
+	e2.Description = "Uber"
+	e2.Category = models.Category{Name: "transporte"}
+	e2.Amount = 85.0
+
+	svc.Create(&e1)
+	svc.Create(&e2)
+
+	t.Run("filter by category", func(t *testing.T) {
+		filter := models.ExpenseFilter{Period: "month", Category: "restaurantes"}
+		expenses, err := svc.ListFiltered(filter)
+		if err != nil {
+			t.Fatalf("ListFiltered() error = %v", err)
+		}
+		if len(expenses) != 1 {
+			t.Errorf("expected 1 expense, got %d", len(expenses))
+		}
+	})
+
+	t.Run("filter all categories", func(t *testing.T) {
+		filter := models.ExpenseFilter{Period: "month"}
+		expenses, err := svc.ListFiltered(filter)
+		if err != nil {
+			t.Fatalf("ListFiltered() error = %v", err)
+		}
+		if len(expenses) != 2 {
+			t.Errorf("expected 2 expenses, got %d", len(expenses))
+		}
+	})
+
+	t.Run("invalid category returns error", func(t *testing.T) {
+		filter := models.ExpenseFilter{Period: "month", Category: "pizza"}
+		_, err := svc.ListFiltered(filter)
+		if err == nil {
+			t.Error("expected error for invalid category filter")
+		}
+	})
+}
+
+func TestGetDashboardData(t *testing.T) {
+	svc := setupTestService(t)
+
+	e1 := validExpense()
+	e1.Amount = 200
+	e2 := validExpense()
+	e2.Description = "Uber"
+	e2.Category = models.Category{Name: "transporte"}
+	e2.Amount = 100
+
+	svc.Create(&e1)
+	svc.Create(&e2)
+
+	data, err := svc.GetDashboardData("month", "")
+	if err != nil {
+		t.Fatalf("GetDashboardData() error = %v", err)
+	}
+
+	if data.TotalAmount != 300 {
+		t.Errorf("expected total 300, got %f", data.TotalAmount)
+	}
+	if data.TopCategory != "restaurantes" {
+		t.Errorf("expected top category restaurantes, got %s", data.TopCategory)
+	}
+	if data.ExpenseCount != 2 {
+		t.Errorf("expected 2 expenses, got %d", data.ExpenseCount)
+	}
+	if len(data.ByCategory) != 2 {
+		t.Errorf("expected 2 categories, got %d", len(data.ByCategory))
+	}
+	if data.DailyAverage <= 0 {
+		t.Errorf("expected positive daily average, got %f", data.DailyAverage)
+	}
+}

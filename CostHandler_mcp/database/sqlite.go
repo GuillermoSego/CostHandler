@@ -34,12 +34,29 @@ const createExpensesTable = `
 	)
 `
 
-// CreateTables ejecuta las queries de creación de tablas.
-func CreateTables(db *sql.DB) error {
-	_, err := db.Exec(createExpensesTable)
-	if err != nil {
-		return err
-	}
+const createBudgetsTable = `
+	CREATE TABLE IF NOT EXISTS budgets (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		user       TEXT NOT NULL,
+		category   TEXT NOT NULL,
+		amount     REAL NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(user, category)
+	)
+`
 
+const createUserChatsTable = `
+	CREATE TABLE IF NOT EXISTS user_chats (
+		user    TEXT PRIMARY KEY,
+		chat_id INTEGER NOT NULL
+	)
+`
+
+func CreateTables(db *sql.DB) error {
+	for _, query := range []string{createExpensesTable, createBudgetsTable, createUserChatsTable} {
+		if _, err := db.Exec(query); err != nil {
+			return err
+		}
+	}
 	return nil
 }

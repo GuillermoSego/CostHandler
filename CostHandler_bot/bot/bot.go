@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/GuillermoSego/costhandler/agent/agent"
 	"github.com/GuillermoSego/costhandler/mcp/models"
@@ -12,19 +15,17 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// Bot tiene dos dependencias:
-// - api: la conexión con Telegram (para recibir y enviar mensajes)
-// - agent: el cerebro que clasifica gastos (Fase 2)
 type Bot struct {
-	api          *tgbotapi.BotAPI
-	agent        *agent.Agent
-	dashboardURL string
-	svc          *service.ExpenseService
+	api           *tgbotapi.BotAPI
+	agent         *agent.Agent
+	dashboardURL  string
+	svc           *service.ExpenseService
+	budgetSvc     *service.BudgetService
+	pendingBudget map[int64]string
+	mu            sync.Mutex
 }
 
-// NewBot crea la conexión con Telegram usando el token de BotFather.
-// Si el token es inválido, Telegram rechaza y devuelve error.
-func NewBot(token string, agent *agent.Agent, dashboardURL string, svc *service.ExpenseService) (*Bot, error) {
+func NewBot(token string, agent *agent.Agent, dashboardURL string, svc *service.ExpenseService, budgetSvc *service.BudgetService) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to telegram: %w", err)
@@ -33,48 +34,68 @@ func NewBot(token string, agent *agent.Agent, dashboardURL string, svc *service.
 	log.Printf("Bot conectado como: @%s", api.Self.UserName)
 
 	return &Bot{
-		api:          api,
-		agent:        agent,
-		dashboardURL: dashboardURL,
-		svc:          svc,
+		api:           api,
+		agent:         agent,
+		dashboardURL:  dashboardURL,
+		svc:           svc,
+		budgetSvc:     budgetSvc,
+		pendingBudget: make(map[int64]string),
 	}, nil
 }
 
-// Start inicia el loop principal del bot.
-// Long polling = le preguntamos a Telegram "¿hay mensajes nuevos?" cada pocos segundos.
-// Este método BLOQUEA — se queda corriendo hasta que lo detengas (Ctrl+C).
 func (b *Bot) Start() {
-	// Offset 0 = desde el último mensaje no procesado
-	// Timeout 60 = espera hasta 60 segundos antes de responder vacío
 	updateConfig := tgbotapi.NewUpdate(0)
 	updateConfig.Timeout = 60
 
-	// GetUpdatesChan devuelve un CHANNEL — un tubo por donde llegan los mensajes.
-	// Es como un stream/observable en JS o un generator en Python.
 	updates := b.api.GetUpdatesChan(updateConfig)
 
 	log.Println("Bot escuchando mensajes...")
 
-	// for range sobre un channel = "procesa cada mensaje que llegue, para siempre"
-	// Esto es el event loop del bot.
 	for update := range updates {
-		// Solo nos interesan mensajes de texto (ignoramos stickers, fotos, etc.)
+		if update.CallbackQuery != nil {
+			b.handleCallback(update.CallbackQuery)
+			continue
+		}
+
 		if update.Message == nil {
 			continue
 		}
 
+		b.saveChatID(update.Message)
 		b.handleUpdate(update.Message)
 	}
 }
 
-// handleUpdate decide qué hacer con cada mensaje.
-// Si empieza con "/" es un comando, si no es un gasto.
-func (b *Bot) handleUpdate(message *tgbotapi.Message) {
-	user := message.From.UserName
-	if user == "" {
-		user = message.From.FirstName
+func (b *Bot) StartWeeklyScheduler() {
+	go func() {
+		for {
+			next := nextWeekday(time.Monday, 9, 0)
+			log.Printf("Próximo resumen semanal: %s", next.Format("2006-01-02 15:04"))
+			time.Sleep(time.Until(next))
+			b.sendWeeklySummaries()
+		}
+	}()
+}
+
+func (b *Bot) saveChatID(message *tgbotapi.Message) {
+	user := getUser(message)
+	if err := b.budgetSvc.UpsertChatID(user, message.Chat.ID); err != nil {
+		log.Printf("Error guardando chat_id de @%s: %v", user, err)
 	}
+}
+
+func (b *Bot) handleUpdate(message *tgbotapi.Message) {
+	user := getUser(message)
 	log.Printf("Mensaje recibido de @%s: %s", user, message.Text)
+
+	b.mu.Lock()
+	category, pending := b.pendingBudget[message.Chat.ID]
+	b.mu.Unlock()
+
+	if pending {
+		b.handleBudgetAmount(message, category)
+		return
+	}
 
 	if message.IsCommand() {
 		b.handleCommand(message)
@@ -83,16 +104,11 @@ func (b *Bot) handleUpdate(message *tgbotapi.Message) {
 	}
 }
 
-// handleCommand procesa los comandos del bot (/start, /ayuda, etc.)
 func (b *Bot) handleCommand(message *tgbotapi.Message) {
-	var response string
-
-	// message.Command() devuelve el comando SIN el "/" — "start", "ayuda", etc.
-	user := message.From.UserName
-	if user == "" {
-		user = message.From.FirstName
-	}
+	user := getUser(message)
 	log.Printf("Comando /%s de @%s", message.Command(), user)
+
+	var response string
 
 	switch message.Command() {
 	case "start":
@@ -100,15 +116,17 @@ func (b *Bot) handleCommand(message *tgbotapi.Message) {
 			"Envíame un mensaje con tu gasto y yo lo clasifico.\n" +
 			"Ejemplo: \"150 tacos al pastor\"\n\n" +
 			"Comandos:\n" +
-			"/resumen — resumen del mes\n" +
+			"/resumen — resumen del mes con insights\n" +
 			"/ultimos — últimos 5 gastos\n" +
+			"/presupuesto — ver/editar presupuesto mensual\n" +
 			"/dashboard — ver dashboard de gastos\n" +
 			"/ayuda — ver esta lista"
 	case "ayuda":
 		response = "Comandos disponibles:\n" +
 			"/start — bienvenida\n" +
-			"/resumen — resumen del mes\n" +
+			"/resumen — resumen del mes con insights\n" +
 			"/ultimos — últimos 5 gastos\n" +
+			"/presupuesto — ver/editar presupuesto mensual\n" +
 			"/dashboard — ver dashboard de gastos\n" +
 			"/ayuda — ver esta lista"
 	case "resumen":
@@ -116,6 +134,9 @@ func (b *Bot) handleCommand(message *tgbotapi.Message) {
 		return
 	case "ultimos":
 		b.handleUltimos(message)
+		return
+	case "presupuesto":
+		b.handlePresupuesto(message)
 		return
 	case "dashboard":
 		url := b.dashboardURL + "/dashboard"
@@ -132,13 +153,8 @@ func (b *Bot) handleCommand(message *tgbotapi.Message) {
 	b.sendMessage(message.Chat.ID, response)
 }
 
-// handleExpense procesa mensajes libres — los manda al agent para clasificar.
 func (b *Bot) handleExpense(message *tgbotapi.Message) {
-	// Sacamos el username de Telegram como identificador de usuario
-	user := message.From.UserName
-	if user == "" {
-		user = message.From.FirstName // Fallback si no tiene username
-	}
+	user := getUser(message)
 
 	result, err := b.agent.ProcessMessage(context.Background(), user, message.Text)
 	if err != nil {
@@ -173,6 +189,7 @@ func (b *Bot) handleExpense(message *tgbotapi.Message) {
 }
 
 func (b *Bot) handleResumen(message *tgbotapi.Message) {
+	user := getUser(message)
 	data, err := b.svc.GetDashboardData("month", "")
 	if err != nil {
 		log.Printf("Error obteniendo resumen: %v", err)
@@ -186,6 +203,8 @@ func (b *Bot) handleResumen(message *tgbotapi.Message) {
 	}
 	log.Printf("Resumen generado: %d gastos, $%.2f total", data.ExpenseCount, data.TotalAmount)
 
+	budgets, _ := b.budgetSvc.ListByUser(user)
+
 	var sb strings.Builder
 	sb.WriteString("Resumen del mes:\n\n")
 	sb.WriteString(fmt.Sprintf("💰 Total: $%.2f\n", data.TotalAmount))
@@ -197,9 +216,30 @@ func (b *Bot) handleResumen(message *tgbotapi.Message) {
 
 	if len(data.ByCategory) > 0 {
 		sb.WriteString("\nPor categoría:\n")
+		budgetMap := makeBudgetMap(budgets)
 		for _, c := range data.ByCategory {
-			sb.WriteString(fmt.Sprintf("  %s: $%.2f (%d)\n", c.Category, c.Total, c.Count))
+			line := fmt.Sprintf("  %s: $%.2f", c.Category, c.Total)
+			if b, ok := budgetMap[c.Category]; ok {
+				pct := (c.Total / b) * 100
+				status := "✅"
+				if pct >= 100 {
+					status = "🔴"
+				} else if pct >= 80 {
+					status = "⚠️"
+				}
+				line += fmt.Sprintf(" / $%.0f (%.0f%%) %s", b, pct, status)
+			}
+			sb.WriteString(line + "\n")
 		}
+	}
+
+	insightPrompt := buildInsightPrompt(data, budgets)
+	insights, err := b.agent.GetInsights(context.Background(), insightPrompt)
+	if err != nil {
+		log.Printf("Error generando insights: %v", err)
+	} else {
+		sb.WriteString("\n💡 Insights:\n")
+		sb.WriteString(insights)
 	}
 
 	b.sendMessage(message.Chat.ID, sb.String())
@@ -238,6 +278,180 @@ func (b *Bot) handleUltimos(message *tgbotapi.Message) {
 	b.sendMessage(message.Chat.ID, sb.String())
 }
 
+func (b *Bot) handlePresupuesto(message *tgbotapi.Message) {
+	user := getUser(message)
+	budgets, err := b.budgetSvc.ListByUser(user)
+	if err != nil {
+		b.sendMessage(message.Chat.ID, "Error obteniendo presupuesto: "+err.Error())
+		return
+	}
+
+	var sb strings.Builder
+	if len(budgets) == 0 {
+		sb.WriteString("No tienes presupuesto configurado aún.\n")
+		sb.WriteString("Usa el botón de abajo para configurar uno.")
+	} else {
+		sb.WriteString("Presupuesto mensual:\n\n")
+		total := 0.0
+		for _, bg := range budgets {
+			sb.WriteString(fmt.Sprintf("  %s: $%.2f\n", bg.Category, bg.Amount))
+			total += bg.Amount
+		}
+		sb.WriteString(fmt.Sprintf("\nTotal presupuestado: $%.2f", total))
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, sb.String())
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Editar presupuesto", "edit_budget"),
+		),
+	)
+	if _, err := b.api.Send(msg); err != nil {
+		log.Printf("Error enviando mensaje: %v", err)
+	}
+}
+
+func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
+	ack := tgbotapi.NewCallback(callback.ID, "")
+	b.api.Request(ack)
+
+	data := callback.Data
+	chatID := callback.Message.Chat.ID
+
+	switch {
+	case data == "edit_budget":
+		b.sendCategoryKeyboard(chatID)
+
+	case data == "budget_done":
+		b.sendMessage(chatID, "Presupuesto actualizado.")
+
+	case strings.HasPrefix(data, "budget:"):
+		category := strings.TrimPrefix(data, "budget:")
+		b.mu.Lock()
+		b.pendingBudget[chatID] = category
+		b.mu.Unlock()
+		b.sendMessage(chatID, fmt.Sprintf("¿Cuánto asignas mensualmente a %s?\nEnvía el monto (ej: 1500):", category))
+	}
+}
+
+func (b *Bot) sendCategoryKeyboard(chatID int64) {
+	categories := service.ValidCategories()
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	for i := 0; i < len(categories); i += 3 {
+		end := i + 3
+		if end > len(categories) {
+			end = len(categories)
+		}
+		var row []tgbotapi.InlineKeyboardButton
+		for _, cat := range categories[i:end] {
+			row = append(row, tgbotapi.NewInlineKeyboardButtonData(cat, "budget:"+cat))
+		}
+		rows = append(rows, row)
+	}
+
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("Listo ✅", "budget_done"),
+	))
+
+	msg := tgbotapi.NewMessage(chatID, "Selecciona la categoría a configurar:")
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	if _, err := b.api.Send(msg); err != nil {
+		log.Printf("Error enviando teclado de categorías: %v", err)
+	}
+}
+
+func (b *Bot) handleBudgetAmount(message *tgbotapi.Message, category string) {
+	b.mu.Lock()
+	delete(b.pendingBudget, message.Chat.ID)
+	b.mu.Unlock()
+
+	amount, err := strconv.ParseFloat(strings.TrimSpace(message.Text), 64)
+	if err != nil || amount <= 0 {
+		b.sendMessage(message.Chat.ID, "Monto inválido. Envía un número mayor a 0.")
+		return
+	}
+
+	user := getUser(message)
+	budget := &models.Budget{
+		User:     user,
+		Category: category,
+		Amount:   amount,
+	}
+
+	if err := b.budgetSvc.Upsert(budget); err != nil {
+		b.sendMessage(message.Chat.ID, "Error guardando presupuesto: "+err.Error())
+		return
+	}
+
+	log.Printf("Presupuesto actualizado: @%s %s = $%.2f", user, category, amount)
+	b.sendMessage(message.Chat.ID, fmt.Sprintf("Presupuesto de %s actualizado a $%.2f", category, amount))
+	b.sendCategoryKeyboard(message.Chat.ID)
+}
+
+func (b *Bot) hasPendingBudget(chatID int64) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, ok := b.pendingBudget[chatID]
+	return ok
+}
+
+func (b *Bot) sendWeeklySummaries() {
+	log.Println("Enviando resúmenes semanales...")
+
+	chats, err := b.budgetSvc.ListChatIDs()
+	if err != nil {
+		log.Printf("Error obteniendo chat IDs: %v", err)
+		return
+	}
+
+	for _, chat := range chats {
+		data, err := b.svc.GetDashboardData("week", "")
+		if err != nil {
+			log.Printf("Error obteniendo datos semanales para @%s: %v", chat.User, err)
+			continue
+		}
+
+		budgets, _ := b.budgetSvc.ListByUser(chat.User)
+
+		var sb strings.Builder
+		sb.WriteString("📅 Resumen semanal:\n\n")
+		sb.WriteString(fmt.Sprintf("💰 Total de la semana: $%.2f\n", data.TotalAmount))
+		sb.WriteString(fmt.Sprintf("📊 Gastos: %d\n", data.ExpenseCount))
+
+		if len(data.ByCategory) > 0 {
+			sb.WriteString("\nPor categoría:\n")
+			budgetMap := makeBudgetMap(budgets)
+			for _, c := range data.ByCategory {
+				line := fmt.Sprintf("  %s: $%.2f", c.Category, c.Total)
+				if b, ok := budgetMap[c.Category]; ok {
+					pct := (c.Total / b) * 100
+					status := "✅"
+					if pct >= 100 {
+						status = "🔴"
+					} else if pct >= 80 {
+						status = "⚠️"
+					}
+					line += fmt.Sprintf(" / $%.0f (%.0f%%) %s", b, pct, status)
+				}
+				sb.WriteString(line + "\n")
+			}
+		}
+
+		insightPrompt := buildInsightPrompt(data, budgets)
+		insights, err := b.agent.GetInsights(context.Background(), insightPrompt)
+		if err != nil {
+			log.Printf("Error generando insights semanales: %v", err)
+		} else {
+			sb.WriteString("\n💡 Insights:\n")
+			sb.WriteString(insights)
+		}
+
+		b.sendMessage(chat.ChatID, sb.String())
+		log.Printf("Resumen semanal enviado a @%s", chat.User)
+	}
+}
+
 func (b *Bot) sendMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	if _, err := b.api.Send(msg); err != nil {
@@ -255,4 +469,75 @@ func (b *Bot) sendMessageWithButton(chatID int64, text, buttonLabel, url string)
 	if _, err := b.api.Send(msg); err != nil {
 		log.Printf("Error enviando mensaje: %v", err)
 	}
+}
+
+func getUser(message *tgbotapi.Message) string {
+	if message.From.UserName != "" {
+		return message.From.UserName
+	}
+	return message.From.FirstName
+}
+
+func makeBudgetMap(budgets []models.Budget) map[string]float64 {
+	m := make(map[string]float64)
+	for _, b := range budgets {
+		m[b.Category] = b.Amount
+	}
+	return m
+}
+
+func buildInsightPrompt(data *models.DashboardData, budgets []models.Budget) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Total gastado: $%.2f\n", data.TotalAmount))
+	sb.WriteString(fmt.Sprintf("Promedio diario: $%.2f\n", data.DailyAverage))
+	sb.WriteString(fmt.Sprintf("Número de gastos: %d\n", data.ExpenseCount))
+
+	if data.PrevTotal > 0 {
+		diff := ((data.TotalAmount - data.PrevTotal) / data.PrevTotal) * 100
+		sb.WriteString(fmt.Sprintf("vs. período anterior: %+.0f%%\n", diff))
+	}
+
+	budgetMap := makeBudgetMap(budgets)
+	totalBudget := 0.0
+	for _, b := range budgets {
+		totalBudget += b.Amount
+	}
+	if totalBudget > 0 {
+		sb.WriteString(fmt.Sprintf("Presupuesto total: $%.2f\n", totalBudget))
+	}
+
+	sb.WriteString("\nPor categoría (gastado / presupuesto):\n")
+	for _, c := range data.ByCategory {
+		line := fmt.Sprintf("- %s: $%.2f", c.Category, c.Total)
+		if b, ok := budgetMap[c.Category]; ok {
+			pct := (c.Total / b) * 100
+			status := "OK"
+			if pct >= 100 {
+				status = "SOBRE PRESUPUESTO"
+			}
+			line += fmt.Sprintf(" / $%.0f (%.0f%%) %s", b, pct, status)
+		} else {
+			line += " (sin presupuesto)"
+		}
+		sb.WriteString(line + "\n")
+	}
+
+	return sb.String()
+}
+
+func nextWeekday(day time.Weekday, hour, minute int) time.Time {
+	now := time.Now()
+	target := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+
+	daysUntil := int(day - now.Weekday())
+	if daysUntil < 0 {
+		daysUntil += 7
+	}
+	target = target.AddDate(0, 0, daysUntil)
+
+	if !target.After(now) {
+		target = target.AddDate(0, 0, 7)
+	}
+
+	return target
 }

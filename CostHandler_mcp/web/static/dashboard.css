@@ -1,0 +1,242 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #f5f5f5;
+    color: #333;
+    line-height: 1.5;
+}
+
+header {
+    background: #fff;
+    padding: 1rem 2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+header h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #222;
+}
+
+.filters {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.filters select {
+    padding: 0.4rem 0.8rem;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    background: #fff;
+    cursor: pointer;
+}
+
+main {
+    max-width: 1100px;
+    margin: 1.5rem auto;
+    padding: 0 1rem;
+}
+
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 1.2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.card-label {
+    font-size: 0.8rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.card-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #222;
+}
+
+.card-value.positive {
+    color: #4CAF50;
+}
+
+.card-value.negative {
+    color: #F44336;
+}
+
+.charts {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.charts.full {
+    grid-template-columns: 1fr;
+}
+
+.chart-container {
+    background: #fff;
+    border-radius: 10px;
+    padding: 1.2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.chart-container h2 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 0.8rem;
+}
+
+.chart-container canvas {
+    max-height: 280px;
+}
+
+.expenses-section {
+    background: #fff;
+    border-radius: 10px;
+    padding: 1.2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 2rem;
+}
+
+.expenses-section h2 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 0.8rem;
+}
+
+.table-wrapper {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.9rem;
+}
+
+th {
+    color: #888;
+    font-weight: 500;
+    border-bottom: 2px solid #eee;
+}
+
+td {
+    border-bottom: 1px solid #f0f0f0;
+}
+
+td.empty {
+    text-align: center;
+    color: #aaa;
+    padding: 2rem;
+}
+
+.budget-section {
+    background: #fff;
+    border-radius: 10px;
+    padding: 1.2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 1.5rem;
+}
+
+.budget-section h2 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 0.8rem;
+}
+
+.budget-row {
+    margin-bottom: 0.8rem;
+}
+
+.budget-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+}
+
+.budget-category {
+    font-weight: 600;
+    color: #333;
+}
+
+.budget-amounts {
+    color: #888;
+}
+
+.budget-bar {
+    height: 10px;
+    background: #eee;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.budget-bar-fill {
+    height: 100%;
+    border-radius: 5px;
+    transition: width 0.4s ease;
+}
+
+.budget-bar-fill.ok {
+    background: #4CAF50;
+}
+
+.budget-bar-fill.warning {
+    background: #FFC107;
+}
+
+.budget-bar-fill.over {
+    background: #F44336;
+}
+
+@media (min-width: 768px) {
+    .summary-cards {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    header {
+        padding: 1rem;
+    }
+
+    .charts {
+        grid-template-columns: 1fr;
+    }
+
+    .card-value {
+        font-size: 1.2rem;
+    }
+}

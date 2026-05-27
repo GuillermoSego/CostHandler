@@ -2,6 +2,8 @@ package repository
 
 import (
 	"database/sql"
+	"fmt"
+	"time"
 
 	"github.com/GuillermoSego/costhandler/mcp/models"
 )
@@ -10,6 +12,10 @@ type ExpenseRepository interface {
 	Create(expense *models.Expense) error
 	List() ([]models.Expense, error)
 	Delete(id int64) error
+	ListFiltered(filter models.ExpenseFilter) ([]models.Expense, error)
+	SumByCategory(from, to string) ([]models.CategorySummary, error)
+	SumByDay(from, to string) ([]models.DailySummary, error)
+	SumByMonth(months int) ([]models.MonthlySummary, error)
 }
 
 type SQLiteExpenseRepository struct {
@@ -89,4 +95,141 @@ func (r *SQLiteExpenseRepository) Delete(id int64) error {
 	}
 
 	return nil
+}
+
+// dateRange convierte un período ("week", "month", "year") en fechas ISO.
+func dateRange(period string) (string, string) {
+	now := time.Now()
+	to := now.Format("2006-01-02")
+
+	var from time.Time
+	switch period {
+	case "week":
+		from = now.AddDate(0, 0, -7)
+	case "year":
+		from = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+	default:
+		from = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	}
+	return from.Format("2006-01-02"), to
+}
+
+func (r *SQLiteExpenseRepository) ListFiltered(filter models.ExpenseFilter) ([]models.Expense, error) {
+	from := filter.From
+	to := filter.To
+	if from == "" || to == "" {
+		from, to = dateRange(filter.Period)
+	}
+
+	query := "SELECT id, user, amount, description, category, raw_message, created_at FROM expenses WHERE created_at >= ? AND created_at <= datetime(?, '+1 day')"
+	args := []any{from, to}
+
+	if filter.Category != "" {
+		query += " AND category = ?"
+		args = append(args, filter.Category)
+	}
+
+	query += " ORDER BY created_at DESC"
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var expenses []models.Expense
+	for rows.Next() {
+		var expense models.Expense
+		var categoryName string
+		err := rows.Scan(
+			&expense.ID,
+			&expense.User,
+			&expense.Amount,
+			&expense.Description,
+			&categoryName,
+			&expense.RawMessage,
+			&expense.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		expense.Category = models.Category{Name: categoryName}
+		expenses = append(expenses, expense)
+	}
+	return expenses, nil
+}
+
+func (r *SQLiteExpenseRepository) SumByCategory(from, to string) ([]models.CategorySummary, error) {
+	rows, err := r.db.Query(
+		`SELECT category, SUM(amount) as total, COUNT(*) as count
+		 FROM expenses
+		 WHERE created_at >= ? AND created_at <= datetime(?, '+1 day')
+		 GROUP BY category
+		 ORDER BY total DESC`,
+		from, to,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []models.CategorySummary
+	for rows.Next() {
+		var s models.CategorySummary
+		if err := rows.Scan(&s.Category, &s.Total, &s.Count); err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, s)
+	}
+	return summaries, nil
+}
+
+func (r *SQLiteExpenseRepository) SumByDay(from, to string) ([]models.DailySummary, error) {
+	rows, err := r.db.Query(
+		`SELECT DATE(created_at) as date, SUM(amount) as total
+		 FROM expenses
+		 WHERE created_at >= ? AND created_at <= datetime(?, '+1 day')
+		 GROUP BY DATE(created_at)
+		 ORDER BY date ASC`,
+		from, to,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []models.DailySummary
+	for rows.Next() {
+		var s models.DailySummary
+		if err := rows.Scan(&s.Date, &s.Total); err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, s)
+	}
+	return summaries, nil
+}
+
+func (r *SQLiteExpenseRepository) SumByMonth(months int) ([]models.MonthlySummary, error) {
+	rows, err := r.db.Query(
+		`SELECT STRFTIME('%Y-%m', created_at) as month, SUM(amount) as total
+		 FROM expenses
+		 WHERE created_at >= DATE('now', ?)
+		 GROUP BY STRFTIME('%Y-%m', created_at)
+		 ORDER BY month ASC`,
+		fmt.Sprintf("-%d months", months),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []models.MonthlySummary
+	for rows.Next() {
+		var s models.MonthlySummary
+		if err := rows.Scan(&s.Month, &s.Total); err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, s)
+	}
+	return summaries, nil
 }

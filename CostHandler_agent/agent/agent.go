@@ -33,6 +33,13 @@ func (a *Agent) ProcessMessage(ctx context.Context, user string, message string)
 		return nil, fmt.Errorf("low confidence (%.2f): could not classify message reliably", result.Confidence)
 	}
 
-	// Todo bien — devolvemos (resultado, nil)
 	return result, nil
+}
+
+func (a *Agent) GetInsights(ctx context.Context, prompt string) (string, error) {
+	insights, err := a.classifier.GenerateInsights(ctx, prompt)
+	if err != nil {
+		return "", fmt.Errorf("generating insights: %w", err)
+	}
+	return insights, nil
 }

@@ -47,7 +47,11 @@ func main() {
 	// Cada pieza recibe la anterior — dependency injection manual
 	repo := repository.NewSQLiteExpenseRepository(db)
 	svc := service.NewExpenseService(repo)
-	expenseHandler := handler.NewExpenseHandler(svc)
+
+	budgetRepo := repository.NewSQLiteBudgetRepository(db)
+	budgetSvc := service.NewBudgetService(budgetRepo)
+
+	expenseHandler := handler.NewExpenseHandler(svc, budgetSvc)
 
 	// ========== 3. HTTP SERVER (API JSON + DASHBOARD) ==========
 	mux := http.NewServeMux()
@@ -65,7 +69,7 @@ func main() {
 	expenseAgent := agent.NewAgent(classifier)
 
 	// ========== 5. BOT DE TELEGRAM ==========
-	telegramBot, err := bot.NewBot(cfg.TelegramToken, expenseAgent, cfg.BaseURL, svc)
+	telegramBot, err := bot.NewBot(cfg.TelegramToken, expenseAgent, cfg.BaseURL, svc, budgetSvc)
 	if err != nil {
 		log.Fatalf("Error creando bot: %v", err)
 	}
@@ -74,6 +78,7 @@ func main() {
 	// "go" lanza el bot en una goroutine (hilo paralelo).
 	// Sin "go", el bot bloquearía aquí y el HTTP server nunca arrancaría.
 	go telegramBot.Start()
+	telegramBot.StartWeeklyScheduler()
 
 	// El HTTP server corre en el hilo principal.
 	// ListenAndServe también bloquea — se queda escuchando para siempre.

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+    <header>
+        <h1>CostHandler</h1>
+        <div class="filters">
+            <select id="period-select">
+                <option value="week">Esta semana</option>
+                <option value="month" selected>Este mes</option>
+                <option value="year">Este a&ntilde;o</option>
+            </select>
+            <input id="user-input" type="text" placeholder="Usuario (para presupuesto)" style="padding:0.4rem 0.8rem;border:1px solid #ddd;border-radius:6px;font-size:0.9rem;width:180px;">
+            <select id="category-select">
+                <option value="">Todas las categor&iacute;as</option>
+                {{range .Categories}}
+                <option value="{{.}}">{{.}}</option>
+                {{end}}
+            </select>
+        </div>
+    </header>
+
+    <main>
+        <section class="summary-cards">
+            <div class="card">
+                <span class="card-label">Total del per&iacute;odo</span>
+                <span class="card-value" id="total-amount">$0</span>
+            </div>
+            <div class="card">
+                <span class="card-label">Categor&iacute;a top</span>
+                <span class="card-value" id="top-category">-</span>
+            </div>
+            <div class="card">
+                <span class="card-label">Promedio diario</span>
+                <span class="card-value" id="daily-avg">$0</span>
+            </div>
+            <div class="card">
+                <span class="card-label">vs. mes anterior</span>
+                <span class="card-value" id="prev-comparison">-</span>
+            </div>
+        </section>
+
+        <section class="charts">
+            <div class="chart-container">
+                <h2>Por categor&iacute;a</h2>
+                <canvas id="category-chart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h2>Gasto diario</h2>
+                <canvas id="daily-chart"></canvas>
+            </div>
+        </section>
+
+        <section class="charts full">
+            <div class="chart-container">
+                <h2>Tendencia mensual</h2>
+                <canvas id="monthly-chart"></canvas>
+            </div>
+        </section>
+
+        <section class="budget-section" id="budget-section" style="display:none;">
+            <h2>Presupuesto vs Real</h2>
+            <div id="budget-bars"></div>
+        </section>
+
+        <section class="expenses-section">
+            <h2>Gastos recientes</h2>
+            <div class="table-wrapper">
+                <table id="expense-list">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Descripci&oacute;n</th>
+                            <th>Categor&iacute;a</th>
+                            <th>Monto</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>

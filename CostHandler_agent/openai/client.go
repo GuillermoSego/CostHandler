@@ -138,3 +138,57 @@ func (c *Client) Classify(ctx context.Context, message string) (*models.Classifi
 
 	return &result, nil
 }
+
+const insightsSystemPrompt = `Eres un asesor financiero personal. Analiza los gastos del usuario comparados con su presupuesto mensual.
+Da máximo 5 insights concretos y accionables. Usa emojis. Sé directo y específico.
+Enfócate en: categorías sobre presupuesto, tendencias preocupantes, oportunidades de ahorro, y patrones positivos.
+Responde en español. No uses markdown, solo texto plano con emojis.`
+
+func (c *Client) GenerateInsights(ctx context.Context, prompt string) (string, error) {
+	reqBody := chatRequest{
+		Model: "gpt-4o-mini",
+		Messages: []chatMessage{
+			{Role: "system", Content: insightsSystemPrompt},
+			{Role: "user", Content: prompt},
+		},
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(jsonBody))
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("calling openai: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("openai returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var chatResp chatResponse
+	if err := json.Unmarshal(body, &chatResp); err != nil {
+		return "", fmt.Errorf("parsing openai response: %w", err)
+	}
+
+	if len(chatResp.Choices) == 0 {
+		return "", fmt.Errorf("openai returned no choices")
+	}
+
+	return chatResp.Choices[0].Message.Content, nil
+}

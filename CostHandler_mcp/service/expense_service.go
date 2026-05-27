@@ -2,7 +2,9 @@ package service
 
 import (
 	"fmt"
+	"math"
 	"slices"
+	"time"
 
 	"github.com/GuillermoSego/costhandler/mcp/models"
 	"github.com/GuillermoSego/costhandler/mcp/repository"
@@ -59,4 +61,123 @@ func (s *ExpenseService) Delete(id int64) error {
 		return fmt.Errorf("invalid expense id: %d", id)
 	}
 	return s.repo.Delete(id)
+}
+
+// ValidCategories expone la lista de categorías válidas para el dashboard.
+func ValidCategories() []string {
+	return validCategories
+}
+
+func (s *ExpenseService) ListFiltered(filter models.ExpenseFilter) ([]models.Expense, error) {
+	if filter.Category != "" && !slices.Contains(validCategories, filter.Category) {
+		return nil, fmt.Errorf("invalid category filter: %s", filter.Category)
+	}
+	return s.repo.ListFiltered(filter)
+}
+
+func (s *ExpenseService) GetDashboardData(period, category string) (*models.DashboardData, error) {
+	now := time.Now()
+	from, to := periodToRange(period, now)
+
+	byCategory, err := s.repo.SumByCategory(from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	byDay, err := s.repo.SumByDay(from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	byMonth, err := s.repo.SumByMonth(12)
+	if err != nil {
+		return nil, err
+	}
+
+	var totalAmount float64
+	var expenseCount int
+	var topCategory string
+	var topCategoryAmt float64
+	for _, c := range byCategory {
+		totalAmount += c.Total
+		expenseCount += c.Count
+		if c.Total > topCategoryAmt {
+			topCategoryAmt = c.Total
+			topCategory = c.Category
+		}
+	}
+
+	days := daysBetween(from, to)
+	if days < 1 {
+		days = 1
+	}
+	dailyAverage := totalAmount / float64(days)
+
+	prevFrom, prevTo := prevPeriodRange(period, now)
+	prevByCategory, err := s.repo.SumByCategory(prevFrom, prevTo)
+	if err != nil {
+		return nil, err
+	}
+	var prevTotal float64
+	for _, c := range prevByCategory {
+		prevTotal += c.Total
+	}
+
+	return &models.DashboardData{
+		TotalAmount:    math.Round(totalAmount*100) / 100,
+		DailyAverage:   math.Round(dailyAverage*100) / 100,
+		TopCategory:    topCategory,
+		TopCategoryAmt: math.Round(topCategoryAmt*100) / 100,
+		PrevTotal:      math.Round(prevTotal*100) / 100,
+		ByCategory:     byCategory,
+		ByDay:          byDay,
+		ByMonth:        byMonth,
+		ExpenseCount:   expenseCount,
+	}, nil
+}
+
+func periodToRange(period string, now time.Time) (string, string) {
+	to := now.Format("2006-01-02")
+	var from time.Time
+	switch period {
+	case "week":
+		from = now.AddDate(0, 0, -7)
+	case "year":
+		from = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+	default:
+		from = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	}
+	return from.Format("2006-01-02"), to
+}
+
+func prevPeriodRange(period string, now time.Time) (string, string) {
+	switch period {
+	case "week":
+		to := now.AddDate(0, 0, -7).Format("2006-01-02")
+		from := now.AddDate(0, 0, -14).Format("2006-01-02")
+		return from, to
+	case "year":
+		prevYear := now.Year() - 1
+		from := time.Date(prevYear, 1, 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02")
+		to := time.Date(prevYear, 12, 31, 0, 0, 0, 0, now.Location()).Format("2006-01-02")
+		return from, to
+	default:
+		prevMonth := now.AddDate(0, -1, 0)
+		from := time.Date(prevMonth.Year(), prevMonth.Month(), 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02")
+		lastDay := time.Date(now.Year(), now.Month(), 0, 0, 0, 0, 0, now.Location())
+		return from, lastDay.Format("2006-01-02")
+	}
+}
+
+func daysBetween(from, to string) int {
+	f, err1 := time.Parse("2006-01-02", from)
+	t, err2 := time.Parse("2006-01-02", to)
+	if err1 != nil || err2 != nil {
+		return 1
+	}
+	days := int(t.Sub(f).Hours()/24) + 1
+	if days < 1 {
+		return 1
+	}
+	return days
 }

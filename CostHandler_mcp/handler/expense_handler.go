@@ -10,31 +10,46 @@ import (
 )
 
 type ExpenseHandler struct {
-	serv *service.ExpenseService
+	serv      *service.ExpenseService
+	budgetSvc *service.BudgetService
 }
 
-func NewExpenseHandler(serv *service.ExpenseService) *ExpenseHandler {
-	return &ExpenseHandler{serv: serv}
+func NewExpenseHandler(serv *service.ExpenseService, budgetSvc *service.BudgetService) *ExpenseHandler {
+	return &ExpenseHandler{serv: serv, budgetSvc: budgetSvc}
 }
 
 // HandleList — GET /api/expenses
-// Este es el más sencillo: pide la lista al service y la devuelve como JSON.
+// Soporta query params opcionales: ?period=month&category=restaurantes
 func (h *ExpenseHandler) HandleList(w http.ResponseWriter, r *http.Request) {
-	// 1. Llamamos al service para obtener los gastos
-	expenses, err := h.serv.List()
-	if err != nil {
-		// http.Error escribe un mensaje de error con el status code que le pases.
-		// http.StatusInternalServerError = 500
-		http.Error(w, "error listing expenses", http.StatusInternalServerError)
-		return // IMPORTANTE: siempre return después de Error, si no sigue ejecutando
+	period := r.URL.Query().Get("period")
+	category := r.URL.Query().Get("category")
+
+	var expenses []models.Expense
+	var err error
+
+	if period != "" || category != "" {
+		filter := models.ExpenseFilter{
+			Period:   period,
+			Category: category,
+		}
+		if filter.Period == "" {
+			filter.Period = "month"
+		}
+		expenses, err = h.serv.ListFiltered(filter)
+	} else {
+		expenses, err = h.serv.List()
 	}
 
-	// 2. Decimos que la respuesta es JSON (si no, el browser/cliente no sabe qué formato es)
-	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		http.Error(w, "error listing expenses", http.StatusInternalServerError)
+		return
+	}
 
-	// 3. Convertimos el slice de expenses a JSON y lo escribimos en w (la respuesta)
-	// json.NewEncoder(w) crea un encoder que escribe directo al ResponseWriter
-	// .Encode(expenses) convierte el slice a JSON — usa los tags `json:"..."` de tus structs
+	if expenses == nil {
+		expenses = []models.Expense{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(expenses)
 }
 
@@ -87,10 +102,75 @@ func (h *ExpenseHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// RegisterRoutes conecta cada handler a su ruta en el mux.
-// El formato "METHOD /ruta" es de Go 1.22+ — antes tenías que checar r.Method manualmente.
+// HandleDashboardSummary — GET /api/dashboard/summary
+func (h *ExpenseHandler) HandleDashboardSummary(w http.ResponseWriter, r *http.Request) {
+	period := r.URL.Query().Get("period")
+	user := r.URL.Query().Get("user")
+
+	if period == "" {
+		period = "month"
+	}
+
+	data, err := h.serv.GetDashboardData(period, "")
+	if err != nil {
+		http.Error(w, "error generating dashboard summary", http.StatusInternalServerError)
+		return
+	}
+
+	if user != "" && h.budgetSvc != nil {
+		comparison, err := h.budgetSvc.CompareBudget(user, data.ByCategory)
+		if err == nil && comparison != nil {
+			data.BudgetComparison = comparison
+			for _, c := range comparison {
+				data.TotalBudgeted += c.Budgeted
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
+func (h *ExpenseHandler) HandleBudgetList(w http.ResponseWriter, r *http.Request) {
+	user := r.URL.Query().Get("user")
+	if user == "" {
+		http.Error(w, "user parameter required", http.StatusBadRequest)
+		return
+	}
+
+	budgets, err := h.budgetSvc.ListByUser(user)
+	if err != nil {
+		http.Error(w, "error listing budgets", http.StatusInternalServerError)
+		return
+	}
+	if budgets == nil {
+		budgets = []models.Budget{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(budgets)
+}
+
+func (h *ExpenseHandler) HandleBudgetUpsert(w http.ResponseWriter, r *http.Request) {
+	var budget models.Budget
+	if err := json.NewDecoder(r.Body).Decode(&budget); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.budgetSvc.Upsert(&budget); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
 func (h *ExpenseHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/expenses", h.HandleList)
 	mux.HandleFunc("POST /api/expenses", h.HandleCreate)
 	mux.HandleFunc("DELETE /api/expenses/{id}", h.HandleDelete)
+	mux.HandleFunc("GET /api/dashboard/summary", h.HandleDashboardSummary)
+	mux.HandleFunc("GET /api/budgets", h.HandleBudgetList)
+	mux.HandleFunc("POST /api/budgets", h.HandleBudgetUpsert)
 }
