@@ -67,12 +67,8 @@
                 <h1 class="topbar__title" id="greeting">Hola 👋</h1>
             </div>
             <div class="topbar__controls">
-                <input id="user-input" class="user-input" type="text" placeholder="Usuario">
-                <select id="category-select" class="picker">
-                    <option value="">Todas las categorías</option>
-                    {{range .Categories}}
-                    <option value="{{.}}">{{.}}</option>
-                    {{end}}
+                <select id="user-select" class="picker">
+                    <option value="">Todos los usuarios</option>
                 </select>
                 <div class="segment" role="tablist" id="period-segment">
                     <button class="segment__item" data-period="week">Semana</button>
@@ -85,6 +81,9 @@
                 </button>
             </div>
         </header>
+
+        <!-- VIEW: Resumen -->
+        <div data-view="resumen">
 
         <!-- Hero -->
         <section class="hero">
@@ -126,7 +125,7 @@
             <article class="panel">
                 <header class="panel__head">
                     <div>
-                        <h2 class="panel__title">En qué se va tu plata</h2>
+                        <h2 class="panel__title">En que se va tu pasta</h2>
                         <div class="panel__sub" id="cat-sub">·</div>
                     </div>
                     <a class="panel__link" href="#categorias">Ver todas
@@ -187,7 +186,152 @@
             </div>
         </section>
 
+        </div><!-- /data-view=resumen -->
+
+        <!-- VIEW: Gastos -->
+        <div data-view="gastos" style="display:none">
+            <section class="panel txn-panel">
+                <header class="panel__head">
+                    <div>
+                        <h2 class="panel__title">Todos los gastos</h2>
+                        <div class="panel__sub" id="gastos-sub">·</div>
+                    </div>
+                </header>
+                <div class="txn-list" id="gastos-list"></div>
+            </section>
+        </div>
+
+        <!-- VIEW: Categorías -->
+        <div data-view="categorias" style="display:none">
+            <section class="panel">
+                <header class="panel__head">
+                    <div>
+                        <h2 class="panel__title">Categorías</h2>
+                        <div class="panel__sub" id="categorias-sub">Desglose completo por categoría</div>
+                    </div>
+                </header>
+                <div class="cat-list" id="categorias-list"></div>
+            </section>
+        </div>
+
+        <!-- VIEW: Presupuestos -->
+        <div data-view="presupuestos" style="display:none">
+            <section class="panel">
+                <header class="panel__head">
+                    <div>
+                        <h2 class="panel__title">Presupuestos</h2>
+                        <div class="panel__sub" id="presupuestos-sub">Define tu límite por categoría</div>
+                    </div>
+                </header>
+                <div id="budget-form-container"></div>
+            </section>
+        </div>
+
+        <!-- VIEW: Metas -->
+        <div data-view="metas" style="display:none">
+            <section class="panel placeholder-view">
+                <div class="placeholder-view__content">
+                    <div class="placeholder-view__icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l1.6 4.6L18 8l-4.4 1.4L12 14l-1.6-4.6L6 8l4.4-1.4z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z"/></svg>
+                    </div>
+                    <h2 class="panel__title">Metas</h2>
+                    <p class="placeholder-view__text">Próximamente podrás definir metas de ahorro y seguir tu progreso.</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- VIEW: Alertas -->
+        <div data-view="alertas" style="display:none">
+            <section class="panel placeholder-view">
+                <div class="placeholder-view__content">
+                    <div class="placeholder-view__icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9zM10 21a2 2 0 0 0 4 0"/></svg>
+                    </div>
+                    <h2 class="panel__title">Alertas</h2>
+                    <p class="placeholder-view__text">Próximamente recibirás notificaciones cuando te acerques a tu presupuesto.</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- VIEW: Ajustes -->
+        <div data-view="ajustes" style="display:none">
+            <section class="panel placeholder-view">
+                <div class="placeholder-view__content">
+                    <div class="placeholder-view__icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+                    </div>
+                    <h2 class="panel__title">Ajustes</h2>
+                    <p class="placeholder-view__text">Próximamente podrás configurar moneda, zona horaria y más.</p>
+                </div>
+            </section>
+        </div>
+
     </main>
+</div>
+
+<!-- MODAL: Agregar gasto -->
+<div class="modal-overlay" id="expense-modal" style="display:none">
+    <div class="modal">
+        <header class="modal__head">
+            <h2 class="modal__title">Agregar gasto</h2>
+            <button class="modal__close" id="modal-close" type="button">&times;</button>
+        </header>
+        <form id="expense-form" class="modal__body">
+            <label class="field">
+                <span class="field__label">Monto (MXN)</span>
+                <input type="number" name="amount" step="0.01" min="0.01" required class="field__input" placeholder="0.00">
+            </label>
+            <label class="field">
+                <span class="field__label">Descripción</span>
+                <input type="text" name="description" required class="field__input" placeholder="¿Qué compraste?">
+            </label>
+            <label class="field">
+                <span class="field__label">Categoría</span>
+                <select name="category" required class="field__input">
+                    {{range .Categories}}
+                    <option value="{{.}}">{{.}}</option>
+                    {{end}}
+                </select>
+            </label>
+            <div class="modal__actions">
+                <button type="button" class="btn btn--tertiary" id="modal-cancel">Cancelar</button>
+                <button type="submit" class="btn btn--primary">Guardar gasto</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: Editar gasto -->
+<div class="modal-overlay" id="edit-modal" style="display:none">
+    <div class="modal">
+        <header class="modal__head">
+            <h2 class="modal__title">Editar gasto</h2>
+            <button class="modal__close" id="edit-modal-close" type="button">&times;</button>
+        </header>
+        <form id="edit-form" class="modal__body">
+            <input type="hidden" name="expense_id">
+            <label class="field">
+                <span class="field__label">Descripción</span>
+                <input type="text" name="description" required class="field__input">
+            </label>
+            <label class="field">
+                <span class="field__label">Categoría</span>
+                <select name="category" required class="field__input">
+                    {{range .Categories}}
+                    <option value="{{.}}">{{.}}</option>
+                    {{end}}
+                </select>
+            </label>
+            <label class="field">
+                <span class="field__label">Fecha</span>
+                <input type="date" name="date" required class="field__input">
+            </label>
+            <div class="modal__actions">
+                <button type="button" class="btn btn--tertiary" id="edit-modal-cancel">Cancelar</button>
+                <button type="submit" class="btn btn--primary">Guardar cambios</button>
+            </div>
+        </form>
+    </div>
 </div>
 
 <script src="/static/dashboard.js"></script>

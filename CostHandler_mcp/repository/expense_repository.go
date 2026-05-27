@@ -11,13 +11,15 @@ import (
 type ExpenseRepository interface {
 	Create(expense *models.Expense) error
 	CreateBatch(expenses []*models.Expense) error
-	List() ([]models.Expense, error)
+	List(user string) ([]models.Expense, error)
+	Update(expense *models.Expense) error
 	Delete(id int64) error
 	DeleteByGroup(groupID string) error
 	ListFiltered(filter models.ExpenseFilter) ([]models.Expense, error)
-	SumByCategory(from, to string) ([]models.CategorySummary, error)
-	SumByDay(from, to string) ([]models.DailySummary, error)
-	SumByMonth(months int) ([]models.MonthlySummary, error)
+	SumByCategory(user, from, to string) ([]models.CategorySummary, error)
+	SumByDay(user, from, to string) ([]models.DailySummary, error)
+	SumByMonth(user string, months int) ([]models.MonthlySummary, error)
+	ListDistinctUsers() ([]string, error)
 }
 
 type SQLiteExpenseRepository struct {
@@ -84,14 +86,17 @@ func (r *SQLiteExpenseRepository) DeleteByGroup(groupID string) error {
 	return err
 }
 
-// List devuelve todos los gastos.
-func (r *SQLiteExpenseRepository) List() ([]models.Expense, error) {
-	// Columnas explícitas — si usas SELECT * y mañana agregas una columna, Scan se rompe.
-	rows, err := r.db.Query(
-		`SELECT id, user, amount, description, category, raw_message, created_at,
-		        installment_group, installment_number, total_installments
-		 FROM expenses ORDER BY created_at DESC`,
-	)
+func (r *SQLiteExpenseRepository) List(user string) ([]models.Expense, error) {
+	query := `SELECT id, user, amount, description, category, raw_message, created_at,
+	                 installment_group, installment_number, total_installments
+	          FROM expenses`
+	var args []any
+	if user != "" {
+		query += " WHERE user = ?"
+		args = append(args, user)
+	}
+	query += " ORDER BY created_at DESC"
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +130,14 @@ func (r *SQLiteExpenseRepository) List() ([]models.Expense, error) {
 	}
 
 	return expenses, nil
+}
+
+func (r *SQLiteExpenseRepository) Update(expense *models.Expense) error {
+	_, err := r.db.Exec(
+		`UPDATE expenses SET description = ?, category = ?, created_at = ? WHERE id = ?`,
+		expense.Description, expense.Category.Name, expense.CreatedAt, expense.ID,
+	)
+	return err
 }
 
 // Delete elimina un gasto por su ID. Solo necesitas el ID, nada más.
@@ -166,6 +179,11 @@ func (r *SQLiteExpenseRepository) ListFiltered(filter models.ExpenseFilter) ([]m
 	          FROM expenses WHERE created_at >= ? AND created_at <= datetime(?, '+1 day')`
 	args := []any{from, to}
 
+	if filter.User != "" {
+		query += " AND user = ?"
+		args = append(args, filter.User)
+	}
+
 	if filter.Category != "" {
 		query += " AND category = ?"
 		args = append(args, filter.Category)
@@ -204,15 +222,17 @@ func (r *SQLiteExpenseRepository) ListFiltered(filter models.ExpenseFilter) ([]m
 	return expenses, nil
 }
 
-func (r *SQLiteExpenseRepository) SumByCategory(from, to string) ([]models.CategorySummary, error) {
-	rows, err := r.db.Query(
-		`SELECT category, SUM(amount) as total, COUNT(*) as count
-		 FROM expenses
-		 WHERE created_at >= ? AND created_at <= datetime(?, '+1 day')
-		 GROUP BY category
-		 ORDER BY total DESC`,
-		from, to,
-	)
+func (r *SQLiteExpenseRepository) SumByCategory(user, from, to string) ([]models.CategorySummary, error) {
+	query := `SELECT category, SUM(amount) as total, COUNT(*) as count
+	          FROM expenses
+	          WHERE created_at >= ? AND created_at <= datetime(?, '+1 day')`
+	args := []any{from, to}
+	if user != "" {
+		query += " AND user = ?"
+		args = append(args, user)
+	}
+	query += " GROUP BY category ORDER BY total DESC"
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -229,15 +249,17 @@ func (r *SQLiteExpenseRepository) SumByCategory(from, to string) ([]models.Categ
 	return summaries, nil
 }
 
-func (r *SQLiteExpenseRepository) SumByDay(from, to string) ([]models.DailySummary, error) {
-	rows, err := r.db.Query(
-		`SELECT DATE(created_at) as date, SUM(amount) as total
-		 FROM expenses
-		 WHERE created_at >= ? AND created_at <= datetime(?, '+1 day')
-		 GROUP BY DATE(created_at)
-		 ORDER BY date ASC`,
-		from, to,
-	)
+func (r *SQLiteExpenseRepository) SumByDay(user, from, to string) ([]models.DailySummary, error) {
+	query := `SELECT DATE(created_at) as date, SUM(amount) as total
+	          FROM expenses
+	          WHERE created_at >= ? AND created_at <= datetime(?, '+1 day')`
+	args := []any{from, to}
+	if user != "" {
+		query += " AND user = ?"
+		args = append(args, user)
+	}
+	query += " GROUP BY DATE(created_at) ORDER BY date ASC"
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -254,15 +276,17 @@ func (r *SQLiteExpenseRepository) SumByDay(from, to string) ([]models.DailySumma
 	return summaries, nil
 }
 
-func (r *SQLiteExpenseRepository) SumByMonth(months int) ([]models.MonthlySummary, error) {
-	rows, err := r.db.Query(
-		`SELECT STRFTIME('%Y-%m', created_at) as month, SUM(amount) as total
-		 FROM expenses
-		 WHERE created_at >= DATE('now', ?)
-		 GROUP BY STRFTIME('%Y-%m', created_at)
-		 ORDER BY month ASC`,
-		fmt.Sprintf("-%d months", months),
-	)
+func (r *SQLiteExpenseRepository) SumByMonth(user string, months int) ([]models.MonthlySummary, error) {
+	query := `SELECT STRFTIME('%Y-%m', created_at) as month, SUM(amount) as total
+	          FROM expenses
+	          WHERE created_at >= DATE('now', ?)`
+	args := []any{fmt.Sprintf("-%d months", months)}
+	if user != "" {
+		query += " AND user = ?"
+		args = append(args, user)
+	}
+	query += " GROUP BY STRFTIME('%Y-%m', created_at) ORDER BY month ASC"
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -277,4 +301,22 @@ func (r *SQLiteExpenseRepository) SumByMonth(months int) ([]models.MonthlySummar
 		summaries = append(summaries, s)
 	}
 	return summaries, nil
+}
+
+func (r *SQLiteExpenseRepository) ListDistinctUsers() ([]string, error) {
+	rows, err := r.db.Query("SELECT DISTINCT user FROM expenses ORDER BY user")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
 }

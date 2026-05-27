@@ -47,13 +47,31 @@ func (s *ExpenseService) Create(expense *models.Expense) error {
 		return fmt.Errorf("invalid category: %s", expense.Category.Name)
 	}
 
-	// Validaciones pasaron — delegamos al repo
+	if expense.CreatedAt == "" {
+		expense.CreatedAt = time.Now().Format("2006-01-02 15:04:05")
+	}
+
 	return s.repo.Create(expense)
 }
 
-// List devuelve todos los gastos.
-func (s *ExpenseService) List() ([]models.Expense, error) {
-	return s.repo.List()
+func (s *ExpenseService) List(user string) ([]models.Expense, error) {
+	return s.repo.List(user)
+}
+
+func (s *ExpenseService) Update(expense *models.Expense) error {
+	if expense.ID <= 0 {
+		return fmt.Errorf("invalid expense id: %d", expense.ID)
+	}
+	if expense.Description == "" {
+		return fmt.Errorf("invalid expense: description is required")
+	}
+	if !slices.Contains(validCategories, expense.Category.Name) {
+		return fmt.Errorf("invalid category: %s", expense.Category.Name)
+	}
+	if expense.CreatedAt == "" {
+		return fmt.Errorf("invalid expense: date is required")
+	}
+	return s.repo.Update(expense)
 }
 
 // Delete elimina un gasto por ID.
@@ -125,27 +143,31 @@ func (s *ExpenseService) CreateInstallments(expense *models.Expense, totalAmount
 	return expenses, nil
 }
 
+func (s *ExpenseService) ListDistinctUsers() ([]string, error) {
+	return s.repo.ListDistinctUsers()
+}
+
 func generateGroupID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
-func (s *ExpenseService) GetDashboardData(period, category string) (*models.DashboardData, error) {
+func (s *ExpenseService) GetDashboardData(user, period, category string) (*models.DashboardData, error) {
 	now := time.Now()
 	from, to := periodToRange(period, now)
 
-	byCategory, err := s.repo.SumByCategory(from, to)
+	byCategory, err := s.repo.SumByCategory(user, from, to)
 	if err != nil {
 		return nil, err
 	}
 
-	byDay, err := s.repo.SumByDay(from, to)
+	byDay, err := s.repo.SumByDay(user, from, to)
 	if err != nil {
 		return nil, err
 	}
 
-	byMonth, err := s.repo.SumByMonth(12)
+	byMonth, err := s.repo.SumByMonth(user, 12)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +192,7 @@ func (s *ExpenseService) GetDashboardData(period, category string) (*models.Dash
 	dailyAverage := totalAmount / float64(days)
 
 	prevFrom, prevTo := prevPeriodRange(period, now)
-	prevByCategory, err := s.repo.SumByCategory(prevFrom, prevTo)
+	prevByCategory, err := s.repo.SumByCategory(user, prevFrom, prevTo)
 	if err != nil {
 		return nil, err
 	}

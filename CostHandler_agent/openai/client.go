@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/GuillermoSego/costhandler/agent/models"
@@ -148,7 +149,7 @@ func (c *Client) Classify(ctx context.Context, message string) (*models.Classifi
 const insightsSystemPrompt = `Eres un asesor financiero personal. Analiza los gastos del usuario comparados con su presupuesto mensual.
 Da máximo 5 insights concretos y accionables. Usa emojis. Sé directo y específico.
 Enfócate en: categorías sobre presupuesto, tendencias preocupantes, oportunidades de ahorro, y patrones positivos.
-Responde en español. No uses markdown, solo texto plano con emojis.`
+Responde en español. IMPORTANTE: No uses markdown. No uses asteriscos (**), guiones bajos (__), ni backticks. Solo texto plano con emojis.`
 
 func (c *Client) GenerateInsights(ctx context.Context, prompt string) (string, error) {
 	reqBody := chatRequest{
@@ -196,5 +197,9 @@ func (c *Client) GenerateInsights(ctx context.Context, prompt string) (string, e
 		return "", fmt.Errorf("openai returned no choices")
 	}
 
-	return chatResp.Choices[0].Message.Content, nil
+	result := chatResp.Choices[0].Message.Content
+	result = strings.ReplaceAll(result, "**", "")
+	result = strings.ReplaceAll(result, "__", "")
+	result = strings.ReplaceAll(result, "```", "")
+	return result, nil
 }

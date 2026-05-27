@@ -11,6 +11,7 @@ let state = {
   period:   'month',
   category: '',
   user:     '',
+  view:     'resumen',
 };
 
 // ---- Money / time formatters --------------------------------
@@ -135,25 +136,74 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 
-  // Category + user
-  document.getElementById('category-select').addEventListener('change', (e) => {
-    state.category = e.target.value;
-    loadDashboard();
-  });
-  document.getElementById('user-input').addEventListener('change', (e) => {
-    state.user = e.target.value.trim();
+  // User filter
+  document.getElementById('user-select').addEventListener('change', (e) => {
+    state.user = e.target.value;
     updateUserCard();
     loadDashboard();
   });
 
-  document.getElementById('add-expense').addEventListener('click', () => {
-    // hook for future quick-add modal
-    window.location.hash = '#nuevo-gasto';
+  // Sidebar navigation
+  document.querySelectorAll('.side .ni').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const hash = a.getAttribute('href') || '#resumen';
+      window.location.hash = hash;
+    });
+  });
+  window.addEventListener('hashchange', () => navigateTo(window.location.hash));
+
+  // "Ver todas" / "Ver todos" links
+  document.querySelectorAll('.panel__link').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.location.hash = a.getAttribute('href');
+    });
   });
 
+  // Add expense modal
+  document.getElementById('add-expense').addEventListener('click', () => {
+    document.getElementById('expense-modal').style.display = '';
+  });
+  document.getElementById('modal-close').addEventListener('click', closeExpenseModal);
+  document.getElementById('modal-cancel').addEventListener('click', closeExpenseModal);
+  document.getElementById('expense-modal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeExpenseModal();
+  });
+  document.getElementById('expense-form').addEventListener('submit', handleExpenseSubmit);
+
+  // Edit expense modal
+  document.getElementById('edit-modal-close').addEventListener('click', closeEditModal);
+  document.getElementById('edit-modal-cancel').addEventListener('click', closeEditModal);
+  document.getElementById('edit-modal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeEditModal();
+  });
+  document.getElementById('edit-form').addEventListener('submit', handleEditSubmit);
+
   updateUserCard();
+  navigateTo(window.location.hash);
+  loadUsers();
   loadDashboard();
 });
+
+async function loadUsers() {
+  try {
+    const res = await fetch('/api/users');
+    const users = await res.json();
+    const sel = document.getElementById('user-select');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Todos los usuarios</option>';
+    (users || []).forEach((u) => {
+      const opt = document.createElement('option');
+      opt.value = u;
+      opt.textContent = u;
+      sel.appendChild(opt);
+    });
+    if (current) sel.value = current;
+  } catch (err) {
+    console.error('Error cargando usuarios:', err);
+  }
+}
 
 function updateUserCard() {
   const card = document.getElementById('user-card');
@@ -187,6 +237,10 @@ async function loadDashboard() {
     const summary  = await sumRes.json();
     const expenses = await expRes.json();
     render(summary || {}, expenses || []);
+
+    if (state.view === 'gastos') loadGastosView();
+    if (state.view === 'categorias') loadCategoriasView();
+    if (state.view === 'presupuestos') loadPresupuestosView();
   } catch (err) {
     console.error('Error cargando dashboard:', err);
   }
@@ -206,7 +260,7 @@ function render(summary, expenses) {
   renderHero(total, prev, dailyAvg, budgets, byCategory);
   renderInsights(total, prev, dailyAvg, budgets, byCategory, top);
   renderCategories(byCategory, budgets, total);
-  renderCalendar(byDay);
+  renderCalendar(byDay, expenses);
   renderTrend(byMonth);
   renderTransactions(expenses);
 }
@@ -462,105 +516,70 @@ function renderCategories(byCategory, budgets, total) {
     return;
   }
 
-  // Build a lookup of budget by category name
-  const budgetMap = {};
-  budgets.forEach((b) => { budgetMap[(b.category || '').toLowerCase()] = b; });
-
   sub.textContent = byCategory.length + ' ' +
     (byCategory.length === 1 ? 'categoría' : 'categorías') +
     (budgets.length ? ' · comparado con tu presupuesto' : ' · ordenadas por gasto');
 
-  // Sort by total desc
-  const sorted = [...byCategory].sort((a, b) => b.total - a.total);
-  const maxTotal = sorted[0].total || 1;
-
-  list.innerHTML = sorted.map((c) => {
-    const color = catColor(c.category);
-    const icon  = catIcon(c.category);
-    const budget = budgetMap[c.category.toLowerCase()];
-    const sharePct = total > 0 ? (c.total / total) * 100 : 0;
-
-    let barCls = 'is-ok';
-    let barPct = (c.total / maxTotal) * 100;
-    let barColorStyle = 'background:' + color + ';';
-    let metaHtml = '';
-
-    if (budget) {
-      const pct  = budget.percentage ?? (budget.spent / budget.budgeted) * 100;
-      const over = pct >= 100;
-      const warn = pct >= 80;
-      barCls = over ? 'is-over' : warn ? 'is-warn' : 'is-ok';
-      barPct = Math.min(pct, 100);
-      // override with status color so progress vs budget reads at-a-glance
-      barColorStyle = '';
-      metaHtml = formatMoney(c.total) + ' de ' + formatMoney(budget.budgeted) +
-        (over ? ' <span class="over">· sobrepasado</span>' : '');
-    } else {
-      metaHtml = sharePct.toFixed(0) + '% del total';
-    }
-
-    const subHtml = budget
-      ? ((c.total / (budget.budgeted || 1)) * 100).toFixed(0) + '% de su presupuesto'
-      : (c.transaction_count
-          ? c.transaction_count + ' ' + (c.transaction_count === 1 ? 'gasto' : 'gastos')
-          : ' ');
-
-    return `
-      <a class="cat-row" href="#cat-${escapeHtml(c.category)}">
-        <span class="cat-chip" style="background:${color}1A;color:${color};">${icon}</span>
-        <div>
-          <div class="cat-name">${escapeHtml(c.category)}</div>
-          <div class="cat-sub">${escapeHtml(subHtml)}</div>
-        </div>
-        <div>
-          <div class="cat-bar"><div class="cat-bar__fill ${barCls}" style="width:${barPct.toFixed(1)}%;${barColorStyle}"></div></div>
-          <div class="cat-meta">${metaHtml}</div>
-        </div>
-        <div class="cat-amount">
-          <div class="cat-amount__value">${formatMoney(c.total)}</div>
-          <div class="cat-amount__pct">${sharePct.toFixed(0)}%</div>
-        </div>
-      </a>
-    `;
-  }).join('');
+  renderCategoryList(list, byCategory, budgets, total);
 }
 
 // ============================================================
 // CALENDAR HEATMAP (month period)
 // ============================================================
-function renderCalendar(byDay) {
+function renderCalendar(byDay, expenses) {
   const grid = document.getElementById('cal-grid');
   const dow  = document.getElementById('cal-dow');
   const meta = document.getElementById('calendar-meta');
+  const calPanel = grid.closest('.panel');
 
   if (state.period !== 'month') {
     dow.style.display  = 'none';
     grid.style.display = 'none';
-    meta.textContent   = state.period === 'week' ? 'Disponible en vista mensual' : 'Disponible en vista mensual';
-    grid.parentElement.style.display = 'none';
+    meta.textContent   = 'Disponible en vista mensual';
+    if (calPanel) calPanel.style.display = 'none';
     return;
   }
   dow.style.display  = '';
   grid.style.display = '';
-  grid.parentElement.style.display = '';
+  if (calPanel) calPanel.style.display = '';
 
   const now = new Date();
   const year = now.getFullYear();
-  const month = now.getMonth(); // 0-indexed
+  const month = now.getMonth();
   const today = now.getDate();
   const dim = new Date(year, month + 1, 0).getDate();
-  // Monday-first weekday of day 1
   const wd0 = (new Date(year, month, 1).getDay() + 6) % 7;
 
-  // Build amount-per-day map from byDay (date strings like "2026-05-23" or "23")
   const byDayMap = {};
-  byDay.forEach((d) => {
+
+  // Primary: use by_day from summary API (DATE() aggregation)
+  (byDay || []).forEach((d) => {
     const ds = String(d.date || '');
-    const m = ds.match(/(\d{1,2})$/);
-    if (m) byDayMap[+m[1]] = +d.total || 0;
+    const parts = ds.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (parts) {
+      const m = parseInt(parts[2], 10);
+      const dy = parseInt(parts[3], 10);
+      if (m === month + 1 && parseInt(parts[1], 10) === year) {
+        byDayMap[dy] = (byDayMap[dy] || 0) + (+d.total || 0);
+      }
+    } else {
+      const fallback = ds.match(/(\d{1,2})$/);
+      if (fallback) byDayMap[+fallback[1]] = (+d.total || 0);
+    }
   });
 
-  // Find max for intensity scale (only past/today, non-zero)
+  // Fallback: if by_day was empty/null, compute from expenses list
+  if (Object.keys(byDayMap).length === 0 && expenses && expenses.length) {
+    expenses.forEach((e) => {
+      const ds = String(e.created_at || '').replace('T', ' ');
+      const parts = ds.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (parts && parseInt(parts[1], 10) === year && parseInt(parts[2], 10) === month + 1) {
+        const dy = parseInt(parts[3], 10);
+        byDayMap[dy] = (byDayMap[dy] || 0) + (+e.amount || 0);
+      }
+    });
+  }
+
   let maxAmt = 0, peakDay = 0;
   for (let i = 1; i <= today; i++) {
     if ((byDayMap[i] || 0) > maxAmt) { maxAmt = byDayMap[i]; peakDay = i; }
@@ -579,7 +598,7 @@ function renderCalendar(byDay) {
     } else if (v > 0) {
       const intensity = v / maxAmt;
       const alpha = (0.18 + intensity * 0.82).toFixed(2);
-      style = 'background: rgba(255, 68, 31, ' + alpha + '); color: ' + (intensity > 0.55 ? '#fff' : 'var(--rp-ink)') + ';';
+      style = 'background-color: rgba(255, 68, 31, ' + alpha + '); color: ' + (intensity > 0.55 ? '#fff' : 'var(--rp-ink)') + ';';
     }
     if (isToday) cls += ' is-today';
     const amt = v > 0 && !future ? '<div class="cal-cell__amount">' + formatMoneyShort(v) + '</div>' : '';
@@ -708,7 +727,6 @@ function renderTransactions(expenses) {
 
 function parseDate(s) {
   if (!s) return { day: '—', time: '' };
-  // Accept "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DDTHH:MM:SS..." or "YYYY-MM-DD"
   const norm = String(s).replace('T', ' ');
   const [d, t] = norm.split(' ');
   const md = (d || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -722,4 +740,327 @@ function parseDate(s) {
   else if (diff < 7)   day = capitalize(DAYS_ES[date.getDay()]);
   else                 day = date.getDate() + ' ' + MONTHS_ES_SHORT[date.getMonth()];
   return { day, time: t ? t.slice(0, 5) : '' };
+}
+
+// ============================================================
+// VIEW ROUTER
+// ============================================================
+function navigateTo(hash) {
+  const viewName = (hash || '').replace('#', '') || 'resumen';
+  document.querySelectorAll('[data-view]').forEach((v) => {
+    v.style.display = v.dataset.view === viewName ? '' : 'none';
+  });
+  document.querySelectorAll('.side .ni').forEach((a) => {
+    const linkHash = (a.getAttribute('href') || '').replace('#', '');
+    a.classList.toggle('is-active', linkHash === viewName);
+  });
+  state.view = viewName;
+  if (viewName === 'gastos') loadGastosView();
+  if (viewName === 'categorias') loadCategoriasView();
+  if (viewName === 'presupuestos') loadPresupuestosView();
+}
+
+// ============================================================
+// ADD EXPENSE MODAL
+// ============================================================
+function closeExpenseModal() {
+  document.getElementById('expense-modal').style.display = 'none';
+}
+
+async function handleExpenseSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const body = {
+    user: state.user,
+    amount: parseFloat(form.amount.value),
+    description: form.description.value.trim(),
+    category: { name: form.category.value },
+  };
+  try {
+    const res = await fetch('/api/expenses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      alert('Error: ' + msg);
+      return;
+    }
+    form.reset();
+    closeExpenseModal();
+    loadUsers();
+    loadDashboard();
+  } catch (err) {
+    alert('Error de red: ' + err.message);
+  }
+}
+
+// ============================================================
+// EDIT EXPENSE MODAL
+// ============================================================
+function openEditModal(expense) {
+  const form = document.getElementById('edit-form');
+  form.expense_id.value = expense.id;
+  form.description.value = expense.description || '';
+  form.category.value = expense.category && expense.category.name ? expense.category.name : '';
+  const dateStr = String(expense.created_at || '').replace('T', ' ');
+  const match = dateStr.match(/^(\d{4}-\d{2}-\d{2})/);
+  form.date.value = match ? match[1] : '';
+  document.getElementById('edit-modal').style.display = '';
+}
+
+function closeEditModal() {
+  document.getElementById('edit-modal').style.display = 'none';
+}
+
+async function handleEditSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const id = form.expense_id.value;
+  const body = {
+    description: form.description.value.trim(),
+    category: { name: form.category.value },
+    created_at: form.date.value + ' 00:00:00',
+  };
+  try {
+    const res = await fetch('/api/expenses/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      alert('Error: ' + msg);
+      return;
+    }
+    closeEditModal();
+    loadGastosView();
+    loadDashboard();
+  } catch (err) {
+    alert('Error de red: ' + err.message);
+  }
+}
+
+// ============================================================
+// VIEW: GASTOS (full expense list with delete)
+// ============================================================
+async function loadGastosView() {
+  const params = new URLSearchParams({ period: state.period });
+  if (state.category) params.set('category', state.category);
+  if (state.user) params.set('user', state.user);
+  try {
+    const res = await fetch('/api/expenses?' + params);
+    const expenses = await res.json();
+    renderGastosView(expenses || []);
+  } catch (err) {
+    console.error('Error cargando gastos:', err);
+  }
+}
+
+function renderGastosView(expenses) {
+  const list = document.getElementById('gastos-list');
+  const sub  = document.getElementById('gastos-sub');
+  if (!expenses.length) {
+    sub.textContent = 'Sin movimientos';
+    list.innerHTML = '<div class="txn-empty">Sin gastos en este período</div>';
+    return;
+  }
+  sub.textContent = expenses.length + ' ' + (expenses.length === 1 ? 'gasto' : 'gastos');
+  list.innerHTML = expenses.map((e) => {
+    const catName = e.category && e.category.name ? e.category.name : '—';
+    const color   = catColor(catName);
+    const { day, time } = parseDate(e.created_at);
+    return `
+      <div class="txn-row">
+        <div class="txn-day-col">
+          <div class="txn-day">${escapeHtml(day)}</div>
+          <div class="txn-time">${escapeHtml(time)}</div>
+        </div>
+        <div class="txn-desc">${escapeHtml(e.description || '—')}</div>
+        <div class="txn-cat-col">
+          <span class="txn-cat-tag" style="background:${color}1A;color:${color};">
+            <span class="dot" style="background:${color};"></span>${escapeHtml(catName)}
+          </span>
+        </div>
+        <div class="txn-amount">${formatMoney(e.amount)}</div>
+        <button class="btn-edit" data-expense='${JSON.stringify(e).replace(/'/g, "&#39;")}' title="Editar">&#9998;</button>
+        <button class="btn-delete" data-id="${e.id}" title="Eliminar">&times;</button>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('.btn-edit').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const expense = JSON.parse(btn.dataset.expense);
+      openEditModal(expense);
+    });
+  });
+
+  list.querySelectorAll('.btn-delete').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar este gasto?')) return;
+      try {
+        const res = await fetch('/api/expenses/' + btn.dataset.id, { method: 'DELETE' });
+        if (res.ok) {
+          loadGastosView();
+          loadDashboard();
+        } else {
+          alert('Error eliminando gasto');
+        }
+      } catch (err) {
+        alert('Error de red: ' + err.message);
+      }
+    });
+  });
+}
+
+// ============================================================
+// VIEW: CATEGORÍAS (detailed category breakdown)
+// ============================================================
+async function loadCategoriasView() {
+  const params = new URLSearchParams({ period: state.period });
+  if (state.category) params.set('category', state.category);
+  if (state.user) params.set('user', state.user);
+  try {
+    const res = await fetch('/api/dashboard/summary?' + params);
+    const summary = await res.json();
+    renderCategoriasView(summary || {});
+  } catch (err) {
+    console.error('Error cargando categorías:', err);
+  }
+}
+
+function renderCategoriasView(summary) {
+  const byCategory = summary.by_category || [];
+  const budgets    = summary.budget_comparison || [];
+  const total      = +summary.total_amount || 0;
+  const list = document.getElementById('categorias-list');
+  const sub  = document.getElementById('categorias-sub');
+  if (!byCategory.length) {
+    sub.textContent = 'Sin datos';
+    list.innerHTML = '<div class="txn-empty">Sin gastos en este período</div>';
+    return;
+  }
+  sub.textContent = byCategory.length + ' categorías activas';
+  renderCategoryList(list, byCategory, budgets, total);
+}
+
+function renderCategoryList(container, byCategory, budgets, total) {
+  const budgetMap = {};
+  budgets.forEach((b) => { budgetMap[(b.category || '').toLowerCase()] = b; });
+  const sorted = [...byCategory].sort((a, b) => b.total - a.total);
+  const maxTotal = sorted[0].total || 1;
+
+  container.innerHTML = sorted.map((c) => {
+    const color = catColor(c.category);
+    const icon  = catIcon(c.category);
+    const budget = budgetMap[c.category.toLowerCase()];
+    const sharePct = total > 0 ? (c.total / total) * 100 : 0;
+    let barCls = 'is-ok';
+    let barPct = (c.total / maxTotal) * 100;
+    let barColorStyle = 'background:' + color + ';';
+    let metaHtml = '';
+    if (budget) {
+      const pct  = budget.percentage ?? (budget.spent / budget.budgeted) * 100;
+      const over = pct >= 100;
+      const warn = pct >= 80;
+      barCls = over ? 'is-over' : warn ? 'is-warn' : 'is-ok';
+      barPct = Math.min(pct, 100);
+      barColorStyle = '';
+      metaHtml = formatMoney(c.total) + ' de ' + formatMoney(budget.budgeted) +
+        (over ? ' <span class="over">· sobrepasado</span>' : '');
+    } else {
+      metaHtml = sharePct.toFixed(0) + '% del total';
+    }
+    const subHtml = budget
+      ? ((c.total / (budget.budgeted || 1)) * 100).toFixed(0) + '% de su presupuesto'
+      : (c.count ? c.count + ' ' + (c.count === 1 ? 'gasto' : 'gastos') : ' ');
+    return `
+      <a class="cat-row" href="#cat-${escapeHtml(c.category)}">
+        <span class="cat-chip" style="background:${color}1A;color:${color};">${icon}</span>
+        <div>
+          <div class="cat-name">${escapeHtml(c.category)}</div>
+          <div class="cat-sub">${escapeHtml(subHtml)}</div>
+        </div>
+        <div>
+          <div class="cat-bar"><div class="cat-bar__fill ${barCls}" style="width:${barPct.toFixed(1)}%;${barColorStyle}"></div></div>
+          <div class="cat-meta">${metaHtml}</div>
+        </div>
+        <div class="cat-amount">
+          <div class="cat-amount__value">${formatMoney(c.total)}</div>
+          <div class="cat-amount__pct">${sharePct.toFixed(0)}%</div>
+        </div>
+      </a>
+    `;
+  }).join('');
+}
+
+// ============================================================
+// VIEW: PRESUPUESTOS (budget management)
+// ============================================================
+async function loadPresupuestosView() {
+  const container = document.getElementById('budget-form-container');
+  const sub = document.getElementById('presupuestos-sub');
+  if (!state.user) {
+    sub.textContent = 'Define un usuario primero';
+    container.innerHTML = '<div class="txn-empty">Ingresa un usuario en la barra superior para gestionar presupuestos</div>';
+    return;
+  }
+  sub.textContent = 'Presupuestos de ' + state.user;
+  try {
+    const res = await fetch('/api/budgets?user=' + encodeURIComponent(state.user));
+    const budgets = await res.json();
+    renderPresupuestosView(budgets || []);
+  } catch (err) {
+    console.error('Error cargando presupuestos:', err);
+  }
+}
+
+function renderPresupuestosView(budgets) {
+  const budgetMap = {};
+  budgets.forEach((b) => { budgetMap[b.category] = b; });
+  const container = document.getElementById('budget-form-container');
+  const categories = Object.keys(CATEGORY_COLORS);
+
+  container.innerHTML = '<div class="budget-grid">' + categories.map((cat) => {
+    const existing = budgetMap[cat];
+    const color = catColor(cat);
+    const icon  = catIcon(cat);
+    return `
+      <div class="budget-row">
+        <span class="cat-chip" style="background:${color}1A;color:${color};">${icon}</span>
+        <div class="budget-row__name">${capitalize(cat)}</div>
+        <input type="number" class="budget-input" data-category="${escapeHtml(cat)}"
+               value="${existing ? existing.amount : ''}"
+               placeholder="Sin límite" min="0" step="100">
+        <button class="btn btn--tertiary budget-save" data-category="${escapeHtml(cat)}">Guardar</button>
+      </div>
+    `;
+  }).join('') + '</div>';
+
+  container.querySelectorAll('.budget-save').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const cat = btn.dataset.category;
+      const input = container.querySelector('input[data-category="' + cat + '"]');
+      const amount = parseFloat(input.value);
+      if (!amount || amount <= 0) { alert('Monto inválido'); return; }
+      try {
+        const res = await fetch('/api/budgets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user: state.user, category: cat, amount: amount }),
+        });
+        if (!res.ok) {
+          alert('Error: ' + await res.text());
+          return;
+        }
+        btn.textContent = '✓';
+        setTimeout(() => { btn.textContent = 'Guardar'; }, 1200);
+        loadDashboard();
+      } catch (err) {
+        alert('Error de red: ' + err.message);
+      }
+    });
+  });
 }

@@ -1,6 +1,7 @@
 package models
 
 type ExpenseFilter struct {
+	User     string `json:"user"`
 	Period   string `json:"period"`
 	Category string `json:"category"`
 	From     string `json:"from"`

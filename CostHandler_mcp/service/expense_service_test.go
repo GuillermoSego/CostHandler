@@ -2,6 +2,7 @@ package service
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,8 +110,7 @@ func TestCreate(t *testing.T) {
 func TestList(t *testing.T) {
 	svc := setupTestService(t)
 
-	// Al inicio la lista debe estar vacía
-	expenses, err := svc.List()
+	expenses, err := svc.List("guillermo")
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
@@ -118,7 +118,6 @@ func TestList(t *testing.T) {
 		t.Errorf("expected 0 expenses, got %d", len(expenses))
 	}
 
-	// Creamos dos gastos
 	e1 := validExpense()
 	e2 := validExpense()
 	e2.Description = "Uber al trabajo"
@@ -128,13 +127,20 @@ func TestList(t *testing.T) {
 	svc.Create(&e1)
 	svc.Create(&e2)
 
-	// Ahora deben ser 2
-	expenses, err = svc.List()
+	expenses, err = svc.List("guillermo")
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
 	if len(expenses) != 2 {
 		t.Errorf("expected 2 expenses, got %d", len(expenses))
+	}
+
+	expenses, err = svc.List("otro_usuario")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(expenses) != 0 {
+		t.Errorf("expected 0 expenses for other user, got %d", len(expenses))
 	}
 }
 
@@ -146,20 +152,17 @@ func TestDelete(t *testing.T) {
 	expense := validExpense()
 	svc.Create(&expense)
 
-	// Verificamos que existe
-	expenses, _ := svc.List()
+	expenses, _ := svc.List("guillermo")
 	if len(expenses) != 1 {
 		t.Fatalf("expected 1 expense, got %d", len(expenses))
 	}
 
-	// Lo eliminamos usando el ID que SQLite le asignó
 	err := svc.Delete(expenses[0].ID)
 	if err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	// Verificamos que ya no existe
-	expenses, _ = svc.List()
+	expenses, _ = svc.List("guillermo")
 	if len(expenses) != 0 {
 		t.Errorf("expected 0 expenses after delete, got %d", len(expenses))
 	}
@@ -193,7 +196,7 @@ func TestListFiltered(t *testing.T) {
 	svc.Create(&e2)
 
 	t.Run("filter by category", func(t *testing.T) {
-		filter := models.ExpenseFilter{Period: "month", Category: "restaurantes"}
+		filter := models.ExpenseFilter{User: "guillermo", Period: "month", Category: "restaurantes"}
 		expenses, err := svc.ListFiltered(filter)
 		if err != nil {
 			t.Fatalf("ListFiltered() error = %v", err)
@@ -204,13 +207,24 @@ func TestListFiltered(t *testing.T) {
 	})
 
 	t.Run("filter all categories", func(t *testing.T) {
-		filter := models.ExpenseFilter{Period: "month"}
+		filter := models.ExpenseFilter{User: "guillermo", Period: "month"}
 		expenses, err := svc.ListFiltered(filter)
 		if err != nil {
 			t.Fatalf("ListFiltered() error = %v", err)
 		}
 		if len(expenses) != 2 {
 			t.Errorf("expected 2 expenses, got %d", len(expenses))
+		}
+	})
+
+	t.Run("filter by different user returns empty", func(t *testing.T) {
+		filter := models.ExpenseFilter{User: "otro_usuario", Period: "month"}
+		expenses, err := svc.ListFiltered(filter)
+		if err != nil {
+			t.Fatalf("ListFiltered() error = %v", err)
+		}
+		if len(expenses) != 0 {
+			t.Errorf("expected 0 expenses for other user, got %d", len(expenses))
 		}
 	})
 
@@ -236,7 +250,7 @@ func TestGetDashboardData(t *testing.T) {
 	svc.Create(&e1)
 	svc.Create(&e2)
 
-	data, err := svc.GetDashboardData("month", "")
+	data, err := svc.GetDashboardData("guillermo", "month", "")
 	if err != nil {
 		t.Fatalf("GetDashboardData() error = %v", err)
 	}
@@ -428,11 +442,131 @@ func TestCreateInstallments_GroupAndNumbers(t *testing.T) {
 		}
 	}
 
-	expenses, err := svc.List()
+	expenses, err := svc.List("guillermo")
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
 	if len(expenses) != 3 {
 		t.Errorf("expected 3 expenses in DB, got %d", len(expenses))
+	}
+}
+
+func TestCreate_SetsCreatedAt(t *testing.T) {
+	svc := setupTestService(t)
+	expense := validExpense()
+
+	if err := svc.Create(&expense); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	expenses, _ := svc.List("guillermo")
+	if len(expenses) != 1 {
+		t.Fatalf("expected 1 expense, got %d", len(expenses))
+	}
+
+	if expenses[0].CreatedAt == "" {
+		t.Error("expected CreatedAt to be set, got empty string")
+	}
+
+	today := time.Now().Format("2006-01-02")
+	if !strings.HasPrefix(expenses[0].CreatedAt, today) {
+		t.Errorf("expected CreatedAt to start with %s, got %s", today, expenses[0].CreatedAt)
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	tests := []struct {
+		name    string
+		modify  func(*models.Expense)
+		wantErr bool
+	}{
+		{
+			name:    "valid update should succeed",
+			modify:  func(e *models.Expense) {},
+			wantErr: false,
+		},
+		{
+			name:    "invalid id should fail",
+			modify:  func(e *models.Expense) { e.ID = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "negative id should fail",
+			modify:  func(e *models.Expense) { e.ID = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "empty description should fail",
+			modify:  func(e *models.Expense) { e.Description = "" },
+			wantErr: true,
+		},
+		{
+			name:    "invalid category should fail",
+			modify:  func(e *models.Expense) { e.Category.Name = "pizza" },
+			wantErr: true,
+		},
+		{
+			name:    "empty created_at should fail",
+			modify:  func(e *models.Expense) { e.CreatedAt = "" },
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := setupTestService(t)
+
+			orig := validExpense()
+			svc.Create(&orig)
+			expenses, _ := svc.List("guillermo")
+			id := expenses[0].ID
+
+			update := models.Expense{
+				ID:          id,
+				Description: "Descripción actualizada",
+				Category:    models.Category{Name: "transporte"},
+				CreatedAt:   "2026-05-20 12:00:00",
+			}
+			tt.modify(&update)
+
+			err := svc.Update(&update)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Update() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestUpdate_VerifiesChanges(t *testing.T) {
+	svc := setupTestService(t)
+
+	orig := validExpense()
+	svc.Create(&orig)
+	expenses, _ := svc.List("guillermo")
+	id := expenses[0].ID
+
+	update := &models.Expense{
+		ID:          id,
+		Description: "Uber al aeropuerto",
+		Category:    models.Category{Name: "transporte"},
+		CreatedAt:   "2026-05-20 14:30:00",
+	}
+	if err := svc.Update(update); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	expenses, _ = svc.List("guillermo")
+	if len(expenses) != 1 {
+		t.Fatalf("expected 1 expense, got %d", len(expenses))
+	}
+	e := expenses[0]
+	if e.Description != "Uber al aeropuerto" {
+		t.Errorf("description = %s, want 'Uber al aeropuerto'", e.Description)
+	}
+	if e.Category.Name != "transporte" {
+		t.Errorf("category = %s, want 'transporte'", e.Category.Name)
+	}
+	if !strings.HasPrefix(e.CreatedAt, "2026-05-20") {
+		t.Errorf("created_at = %s, want prefix '2026-05-20'", e.CreatedAt)
 	}
 }

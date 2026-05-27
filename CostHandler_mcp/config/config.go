@@ -1,6 +1,9 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 type Config struct {
 	TelegramToken string
@@ -8,6 +11,7 @@ type Config struct {
 	DBPath        string
 	ServerPort    string
 	BaseURL       string
+	AllowedUsers  []string
 }
 
 func NewConfig() *Config {
@@ -30,11 +34,21 @@ func NewConfig() *Config {
 		baseURL = "http://localhost:" + port
 	}
 
+	var allowedUsers []string
+	if au := os.Getenv("ALLOWED_USERS"); au != "" {
+		for _, u := range strings.Split(au, ",") {
+			if trimmed := strings.TrimSpace(u); trimmed != "" {
+				allowedUsers = append(allowedUsers, trimmed)
+			}
+		}
+	}
+
 	return &Config{
 		TelegramToken: telegramToken,
 		OpenAIKey:     openaiKey,
 		DBPath:        dbPath,
 		ServerPort:    port,
 		BaseURL:       baseURL,
+		AllowedUsers:  allowedUsers,
 	}
 }
