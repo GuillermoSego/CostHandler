@@ -4,11 +4,11 @@ import (
 	"math"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/GuillermoSego/costhandler/mcp/database"
 	"github.com/GuillermoSego/costhandler/mcp/models"
 	"github.com/GuillermoSego/costhandler/mcp/repository"
+	"github.com/GuillermoSego/costhandler/mcp/timeutil"
 )
 
 // setupTestService crea un service con SQLite in-memory para cada test.
@@ -401,7 +401,7 @@ func TestCreateInstallments_DateProgression(t *testing.T) {
 		t.Fatalf("CreateInstallments() error = %v", err)
 	}
 
-	now := time.Now()
+	now := timeutil.Now()
 	for i, e := range result {
 		expectedDate := now.AddDate(0, i, 0).Format("2006-01")
 		gotDate := e.CreatedAt[:7]
@@ -468,7 +468,7 @@ func TestCreate_SetsCreatedAt(t *testing.T) {
 		t.Error("expected CreatedAt to be set, got empty string")
 	}
 
-	today := time.Now().Format("2006-01-02")
+	today := timeutil.Now().Format("2006-01-02")
 	if !strings.HasPrefix(expenses[0].CreatedAt, today) {
 		t.Errorf("expected CreatedAt to start with %s, got %s", today, expenses[0].CreatedAt)
 	}

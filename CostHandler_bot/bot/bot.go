@@ -13,6 +13,7 @@ import (
 	agentModels "github.com/GuillermoSego/costhandler/agent/models"
 	"github.com/GuillermoSego/costhandler/mcp/models"
 	"github.com/GuillermoSego/costhandler/mcp/service"
+	"github.com/GuillermoSego/costhandler/mcp/timeutil"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -603,7 +604,7 @@ func formatMonth(ym string) string {
 }
 
 func nextWeekday(day time.Weekday, hour, minute int) time.Time {
-	now := time.Now()
+	now := timeutil.Now()
 	target := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
 
 	daysUntil := int(day - now.Weekday())

@@ -9,6 +9,7 @@ import (
 
 	"github.com/GuillermoSego/costhandler/mcp/models"
 	"github.com/GuillermoSego/costhandler/mcp/repository"
+	"github.com/GuillermoSego/costhandler/mcp/timeutil"
 )
 
 type ExpenseService struct {
@@ -48,7 +49,7 @@ func (s *ExpenseService) Create(expense *models.Expense) error {
 	}
 
 	if expense.CreatedAt == "" {
-		expense.CreatedAt = time.Now().Format("2006-01-02 15:04:05")
+		expense.CreatedAt = timeutil.Now().Format("2006-01-02 15:04:05")
 	}
 
 	return s.repo.Create(expense)
@@ -112,7 +113,7 @@ func (s *ExpenseService) CreateInstallments(expense *models.Expense, totalAmount
 	remainder := math.Round((totalAmount-perInstallment*float64(installments))*100) / 100
 
 	groupID := generateGroupID()
-	now := time.Now()
+	now := timeutil.Now()
 
 	var expenses []*models.Expense
 	for i := 0; i < installments; i++ {
@@ -154,7 +155,7 @@ func generateGroupID() string {
 }
 
 func (s *ExpenseService) GetDashboardData(user, period, category string) (*models.DashboardData, error) {
-	now := time.Now()
+	now := timeutil.Now()
 	from, to := periodToRange(period, now)
 
 	byCategory, err := s.repo.SumByCategory(user, from, to)

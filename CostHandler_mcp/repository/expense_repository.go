@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/GuillermoSego/costhandler/mcp/models"
+	"github.com/GuillermoSego/costhandler/mcp/timeutil"
 )
 
 type ExpenseRepository interface {
@@ -152,7 +153,7 @@ func (r *SQLiteExpenseRepository) Delete(id int64) error {
 
 // dateRange convierte un período ("week", "month", "year") en fechas ISO.
 func dateRange(period string) (string, string) {
-	now := time.Now()
+	now := timeutil.Now()
 	to := now.Format("2006-01-02")
 
 	var from time.Time
@@ -277,10 +278,11 @@ func (r *SQLiteExpenseRepository) SumByDay(user, from, to string) ([]models.Dail
 }
 
 func (r *SQLiteExpenseRepository) SumByMonth(user string, months int) ([]models.MonthlySummary, error) {
+	cutoff := timeutil.Now().AddDate(0, -months, 0).Format("2006-01-02")
 	query := `SELECT STRFTIME('%Y-%m', created_at) as month, SUM(amount) as total
 	          FROM expenses
-	          WHERE created_at >= DATE('now', ?)`
-	args := []any{fmt.Sprintf("-%d months", months)}
+	          WHERE created_at >= ?`
+	args := []any{cutoff}
 	if user != "" {
 		query += " AND user = ?"
 		args = append(args, user)
