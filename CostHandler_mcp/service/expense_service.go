@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/GuillermoSego/costhandler/mcp/models"
@@ -113,7 +114,16 @@ func (s *ExpenseService) CreateInstallments(expense *models.Expense, totalAmount
 	remainder := math.Round((totalAmount-perInstallment*float64(installments))*100) / 100
 
 	groupID := generateGroupID()
-	now := timeutil.Now()
+	var now time.Time
+	if expense.CreatedAt != "" {
+		if parsed, err := time.Parse("2006-01-02 15:04:05", expense.CreatedAt); err == nil {
+			now = parsed
+		} else {
+			now = timeutil.Now()
+		}
+	} else {
+		now = timeutil.Now()
+	}
 
 	var expenses []*models.Expense
 	for i := 0; i < installments; i++ {
@@ -154,9 +164,15 @@ func generateGroupID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
-func (s *ExpenseService) GetDashboardData(user, period, category string) (*models.DashboardData, error) {
+func (s *ExpenseService) GetDashboardData(user, period, category, fromOverride, toOverride string) (*models.DashboardData, error) {
 	now := timeutil.Now()
-	from, to := periodToRange(period, now)
+	var from, to string
+	if fromOverride != "" && toOverride != "" {
+		from = fromOverride
+		to = toOverride
+	} else {
+		from, to = periodToRange(period, now)
+	}
 
 	byCategory, err := s.repo.SumByCategory(user, from, to)
 	if err != nil {
@@ -192,7 +208,12 @@ func (s *ExpenseService) GetDashboardData(user, period, category string) (*model
 	}
 	dailyAverage := totalAmount / float64(days)
 
-	prevFrom, prevTo := prevPeriodRange(period, now)
+	var prevFrom, prevTo string
+	if fromOverride != "" && toOverride != "" {
+		prevFrom, prevTo = prevRangeFromOverrides(from)
+	} else {
+		prevFrom, prevTo = prevPeriodRange(period, now)
+	}
 	prevByCategory, err := s.repo.SumByCategory(user, prevFrom, prevTo)
 	if err != nil {
 		return nil, err
@@ -246,6 +267,52 @@ func prevPeriodRange(period string, now time.Time) (string, string) {
 		lastDay := time.Date(now.Year(), now.Month(), 0, 0, 0, 0, 0, now.Location())
 		return from, lastDay.Format("2006-01-02")
 	}
+}
+
+func prevRangeFromOverrides(from string) (string, string) {
+	f, err := time.Parse("2006-01-02", from)
+	if err != nil {
+		return from, from
+	}
+	prevFirst := time.Date(f.Year(), f.Month()-1, 1, 0, 0, 0, 0, f.Location())
+	prevLast := time.Date(f.Year(), f.Month(), 0, 0, 0, 0, 0, f.Location())
+	return prevFirst.Format("2006-01-02"), prevLast.Format("2006-01-02")
+}
+
+func (s *ExpenseService) GetInstallmentSummary(user string) (*models.InstallmentSummary, error) {
+	groups, err := s.repo.ListInstallmentGroups(user)
+	if err != nil {
+		return nil, err
+	}
+
+	var totalRemaining float64
+	var debtFreeDate string
+	for i := range groups {
+		groups[i].Description = stripInstallmentSuffix(groups[i].Description)
+		groups[i].RemainingAmount = math.Round((groups[i].TotalAmount-groups[i].PaidAmount)*100) / 100
+		groups[i].PaidAmount = math.Round(groups[i].PaidAmount*100) / 100
+		groups[i].TotalAmount = math.Round(groups[i].TotalAmount*100) / 100
+		totalRemaining += groups[i].RemainingAmount
+
+		if groups[i].LastPaymentDate > debtFreeDate {
+			debtFreeDate = groups[i].LastPaymentDate
+		}
+	}
+
+	return &models.InstallmentSummary{
+		Groups:           groups,
+		TotalRemaining:   math.Round(totalRemaining*100) / 100,
+		DebtFreeDate:     debtFreeDate,
+		ActiveGroupCount: len(groups),
+	}, nil
+}
+
+func stripInstallmentSuffix(desc string) string {
+	idx := strings.LastIndex(desc, " (")
+	if idx > 0 {
+		return strings.TrimSpace(desc[:idx])
+	}
+	return desc
 }
 
 func daysBetween(from, to string) int {

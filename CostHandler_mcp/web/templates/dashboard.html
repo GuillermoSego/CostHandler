@@ -70,6 +70,7 @@
                 <select id="user-select" class="picker">
                     <option value="">Todos los usuarios</option>
                 </select>
+                <select id="month-select" class="picker"></select>
                 <div class="segment" role="tablist" id="period-segment">
                     <button class="segment__item" data-period="week">Semana</button>
                     <button class="segment__item is-active" data-period="month">Mes</button>
@@ -168,6 +169,18 @@
                     </div>
                 </article>
             </div>
+        </section>
+
+        <!-- Meses sin Intereses -->
+        <section class="panel msi-panel" id="msi-panel" style="display:none">
+            <header class="panel__head">
+                <div>
+                    <h2 class="panel__title">Meses sin Intereses</h2>
+                    <div class="panel__sub" id="msi-sub">·</div>
+                </div>
+            </header>
+            <div class="msi-summary" id="msi-summary"></div>
+            <div class="msi-list" id="msi-list"></div>
         </section>
 
         <!-- Recent expenses -->

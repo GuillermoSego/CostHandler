@@ -198,6 +198,9 @@ func (b *Bot) handleExpense(message *tgbotapi.Message) {
 		Category:    models.Category{Name: result.Category},
 		RawMessage:  message.Text,
 	}
+	if result.Date != "" {
+		expense.CreatedAt = result.Date + " 12:00:00"
+	}
 	if err := b.svc.Create(expense); err != nil {
 		log.Printf("Error guardando gasto de @%s: %v", user, err)
 		b.sendMessage(message.Chat.ID, "Gasto clasificado pero no se pudo guardar: "+err.Error())
@@ -211,6 +214,9 @@ func (b *Bot) handleExpense(message *tgbotapi.Message) {
 	sb.WriteString(fmt.Sprintf("📁 Categoría: %s\n", result.Category))
 	sb.WriteString(fmt.Sprintf("📝 Descripción: %s\n", result.Description))
 	sb.WriteString(fmt.Sprintf("🎯 Confianza: %.0f%%\n", result.Confidence*100))
+	if result.Date != "" {
+		sb.WriteString(fmt.Sprintf("📅 Fecha: %s\n", result.Date))
+	}
 
 	b.sendMessage(message.Chat.ID, sb.String())
 }
@@ -221,6 +227,9 @@ func (b *Bot) handleInstallmentExpense(message *tgbotapi.Message, user string, r
 		Description: result.Description,
 		Category:    models.Category{Name: result.Category},
 		RawMessage:  message.Text,
+	}
+	if result.Date != "" {
+		expense.CreatedAt = result.Date + " 12:00:00"
 	}
 
 	installments, err := b.svc.CreateInstallments(expense, result.Amount, result.Installments)
@@ -249,7 +258,7 @@ func (b *Bot) handleInstallmentExpense(message *tgbotapi.Message, user string, r
 
 func (b *Bot) handleResumen(message *tgbotapi.Message) {
 	user := getUser(message)
-	data, err := b.svc.GetDashboardData(user, "month", "")
+	data, err := b.svc.GetDashboardData(user, "month", "", "", "")
 	if err != nil {
 		log.Printf("Error obteniendo resumen: %v", err)
 		b.sendMessage(message.Chat.ID, "Error obteniendo resumen: "+err.Error())
@@ -466,7 +475,7 @@ func (b *Bot) sendWeeklySummaries() {
 	}
 
 	for _, chat := range chats {
-		data, err := b.svc.GetDashboardData(chat.User, "week", "")
+		data, err := b.svc.GetDashboardData(chat.User, "week", "", "", "")
 		if err != nil {
 			log.Printf("Error obteniendo datos semanales para @%s: %v", chat.User, err)
 			continue

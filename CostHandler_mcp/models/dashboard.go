@@ -37,3 +37,24 @@ type DashboardData struct {
 	BudgetComparison []BudgetComparison `json:"budget_comparison"`
 	TotalBudgeted    float64            `json:"total_budgeted"`
 }
+
+type InstallmentGroupSummary struct {
+	GroupID         string  `json:"group_id"`
+	Description     string  `json:"description"`
+	Category        string  `json:"category"`
+	TotalAmount     float64 `json:"total_amount"`
+	PaidAmount      float64 `json:"paid_amount"`
+	RemainingAmount float64 `json:"remaining_amount"`
+	PaidCount       int     `json:"paid_count"`
+	TotalCount      int     `json:"total_count"`
+	PerInstallment  float64 `json:"per_installment"`
+	LastPaymentDate string  `json:"last_payment_date"`
+	User            string  `json:"user"`
+}
+
+type InstallmentSummary struct {
+	Groups           []InstallmentGroupSummary `json:"groups"`
+	TotalRemaining   float64                   `json:"total_remaining"`
+	DebtFreeDate     string                    `json:"debt_free_date"`
+	ActiveGroupCount int                       `json:"active_group_count"`
+}

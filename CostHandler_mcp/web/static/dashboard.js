@@ -8,10 +8,11 @@
 
 // ---- State ---------------------------------------------------
 let state = {
-  period:   'month',
-  category: '',
-  user:     '',
-  view:     'resumen',
+  period:        'month',
+  category:      '',
+  user:          '',
+  view:          'resumen',
+  selectedMonth: null,
 };
 
 // ---- Money / time formatters --------------------------------
@@ -132,8 +133,29 @@ document.addEventListener('DOMContentLoaded', function() {
       seg.querySelectorAll('.segment__item').forEach((x) => x.classList.remove('is-active'));
       b.classList.add('is-active');
       state.period = b.dataset.period;
+      document.getElementById('month-select').style.display = state.period === 'month' ? '' : 'none';
+      if (state.period !== 'month') state.selectedMonth = null;
       loadDashboard();
     });
+  });
+
+  // Month selector
+  const monthSel = document.getElementById('month-select');
+  const _now = new Date();
+  const _curYear = _now.getFullYear();
+  const _curMonth = _now.getMonth();
+  for (let m = 0; m <= _curMonth; m++) {
+    const opt = document.createElement('option');
+    opt.value = _curYear + '-' + String(m + 1).padStart(2, '0');
+    opt.textContent = MONTHS_ES[m].charAt(0).toUpperCase() + MONTHS_ES[m].slice(1);
+    monthSel.appendChild(opt);
+  }
+  monthSel.value = _curYear + '-' + String(_curMonth + 1).padStart(2, '0');
+  monthSel.addEventListener('change', (e) => {
+    const val = e.target.value;
+    const cur = _curYear + '-' + String(_curMonth + 1).padStart(2, '0');
+    state.selectedMonth = val === cur ? null : val;
+    loadDashboard();
   });
 
   // User filter
@@ -223,20 +245,37 @@ function updateUserCard() {
   }
 }
 
+function appendMonthParams(params) {
+  if (state.period === 'month' && state.selectedMonth) {
+    const [y, m] = state.selectedMonth.split('-').map(Number);
+    const firstDay = y + '-' + String(m).padStart(2, '0') + '-01';
+    const lastDay = new Date(y, m, 0).getDate();
+    const toDate = y + '-' + String(m).padStart(2, '0') + '-' + String(lastDay).padStart(2, '0');
+    params.set('from', firstDay);
+    params.set('to', toDate);
+  }
+}
+
 // ---- Data fetch + render orchestration ---------------------
 async function loadDashboard() {
   const params = new URLSearchParams({ period: state.period });
   if (state.category) params.set('category', state.category);
   if (state.user)     params.set('user',     state.user);
+  appendMonthParams(params);
+
+  const msiParams = new URLSearchParams();
+  if (state.user) msiParams.set('user', state.user);
 
   try {
-    const [sumRes, expRes] = await Promise.all([
+    const [sumRes, expRes, msiRes] = await Promise.all([
       fetch('/api/dashboard/summary?' + params),
       fetch('/api/expenses?' + params),
+      fetch('/api/installments?' + msiParams),
     ]);
     const summary  = await sumRes.json();
     const expenses = await expRes.json();
-    render(summary || {}, expenses || []);
+    const installments = await msiRes.json();
+    render(summary || {}, expenses || [], installments || {});
 
     if (state.view === 'gastos') loadGastosView();
     if (state.view === 'categorias') loadCategoriasView();
@@ -246,7 +285,7 @@ async function loadDashboard() {
   }
 }
 
-function render(summary, expenses) {
+function render(summary, expenses, installments) {
   const byCategory = summary.by_category   || [];
   const byDay      = summary.by_day        || [];
   const byMonth    = summary.by_month      || [];
@@ -262,6 +301,7 @@ function render(summary, expenses) {
   renderCategories(byCategory, budgets, total);
   renderCalendar(byDay, expenses);
   renderTrend(byMonth);
+  renderInstallments(installments || {});
   renderTransactions(expenses);
 }
 
@@ -271,9 +311,12 @@ function render(summary, expenses) {
 function renderHero(total, prev, dailyAvg, budgets, byCategory) {
   // Eyebrow
   const ey = document.getElementById('hero-eyebrow');
+  const selMonth = state.selectedMonth
+    ? MONTHS_ES[parseInt(state.selectedMonth.split('-')[1], 10) - 1]
+    : MONTHS_ES[new Date().getMonth()];
   ey.textContent = state.period === 'week'  ? 'Has gastado esta semana'
                   : state.period === 'year' ? 'Has gastado este año'
-                  : 'Has gastado en ' + MONTHS_ES[new Date().getMonth()];
+                  : 'Has gastado en ' + selMonth;
 
   // Total
   document.getElementById('total-amount').textContent =
@@ -301,7 +344,11 @@ function renderHero(total, prev, dailyAvg, budgets, byCategory) {
   // Day-of message
   const dayMsg = document.getElementById('day-of');
   const now = new Date();
-  if (state.period === 'month') {
+  const isPastMonth = state.selectedMonth && state.period === 'month' &&
+    state.selectedMonth !== (now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'));
+  if (isPastMonth) {
+    dayMsg.textContent = '· mes cerrado';
+  } else if (state.period === 'month') {
     const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     dayMsg.textContent = '· día ' + now.getDate() + ' de ' + dim;
   } else if (state.period === 'week') {
@@ -331,7 +378,20 @@ function coachCopy(total, prev, dailyAvg, budgets) {
     }
   }
 
-  if (state.period === 'month') {
+  const isPast = state.selectedMonth && state.period === 'month' &&
+    state.selectedMonth !== (now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'));
+
+  if (state.period === 'month' && isPast) {
+    parts.push('Cerraste el mes en <b class="accent">' + formatMoney(total) + '</b>.');
+    if (budgetTotal > 0) {
+      const diff = total - budgetTotal;
+      if (diff <= 0) {
+        parts.push('Te mantuviste <b>' + formatMoney(Math.abs(diff)) + '</b> por debajo de tu presupuesto.');
+      } else {
+        parts.push('Te pasaste <b>' + formatMoney(diff) + '</b> sobre tu presupuesto.');
+      }
+    }
+  } else if (state.period === 'month') {
     const day = now.getDate();
     const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const remaining = dim - day;
@@ -543,10 +603,23 @@ function renderCalendar(byDay, expenses) {
   grid.style.display = '';
   if (calPanel) calPanel.style.display = '';
 
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const today = now.getDate();
+  let year, month, today;
+  if (state.selectedMonth) {
+    const parts = state.selectedMonth.split('-').map(Number);
+    year = parts[0];
+    month = parts[1] - 1;
+    const realNow = new Date();
+    if (year === realNow.getFullYear() && month === realNow.getMonth()) {
+      today = realNow.getDate();
+    } else {
+      today = new Date(year, month + 1, 0).getDate();
+    }
+  } else {
+    const now = new Date();
+    year = now.getFullYear();
+    month = now.getMonth();
+    today = now.getDate();
+  }
   const dim = new Date(year, month + 1, 0).getDate();
   const wd0 = (new Date(year, month, 1).getDay() + 6) % 7;
 
@@ -687,6 +760,76 @@ function monthLabel(s) {
   const just = String(s).match(/^(\d{1,2})$/);
   if (just) return MONTHS_ES_SHORT[+just[1] - 1];
   return String(s).slice(0, 3).toLowerCase();
+}
+
+// ============================================================
+// MSI (Meses sin Intereses)
+// ============================================================
+function renderInstallments(data) {
+  const panel = document.getElementById('msi-panel');
+  const summaryEl = document.getElementById('msi-summary');
+  const list = document.getElementById('msi-list');
+  const sub = document.getElementById('msi-sub');
+  const groups = data.groups || [];
+
+  if (!groups.length) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+
+  sub.textContent = groups.length + ' ' +
+    (groups.length === 1 ? 'compra activa' : 'compras activas') +
+    ' a meses sin intereses';
+
+  const debtFreeDate = formatDebtFreeDate(data.debt_free_date);
+  summaryEl.innerHTML =
+    '<div class="msi-stat">' +
+      '<div class="msi-stat__label">Deuda restante</div>' +
+      '<div class="msi-stat__value msi-stat__value--danger">' + formatMoney(data.total_remaining) + '</div>' +
+    '</div>' +
+    '<div class="msi-stat">' +
+      '<div class="msi-stat__label">Libre de deuda</div>' +
+      '<div class="msi-stat__value">' + escapeHtml(debtFreeDate) + '</div>' +
+    '</div>';
+
+  list.innerHTML = groups.map(function(g) {
+    var color = catColor(g.category);
+    var icon = catIcon(g.category);
+    var pct = g.total_count > 0 ? (g.paid_count / g.total_count) * 100 : 0;
+    var lastDate = formatMsiDate(g.last_payment_date);
+    return '<div class="msi-row">' +
+      '<span class="cat-chip" style="background:' + color + '1A;color:' + color + ';">' + icon + '</span>' +
+      '<div>' +
+        '<div class="msi-desc">' + escapeHtml(g.description) + '</div>' +
+        '<div class="msi-progress-text">' + g.paid_count + ' de ' + g.total_count + ' pagos · ' + escapeHtml(lastDate) + '</div>' +
+      '</div>' +
+      '<div>' +
+        '<div class="msi-bar"><div class="msi-bar__fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+        '<div class="msi-bar-label">' + formatMoney(g.per_installment) + '/mes · ' + pct.toFixed(0) + '% pagado</div>' +
+      '</div>' +
+      '<div class="msi-amount">' +
+        '<div class="msi-amount__remaining">' + formatMoney(g.remaining_amount) + '</div>' +
+        '<div class="msi-amount__total">de ' + formatMoney(g.total_amount) + '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function formatDebtFreeDate(dateStr) {
+  if (!dateStr) return '---';
+  var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return dateStr;
+  var month = MONTHS_ES[parseInt(m[2], 10) - 1];
+  return capitalize(month) + ' ' + parseInt(m[1], 10);
+}
+
+function formatMsiDate(dateStr) {
+  if (!dateStr) return '';
+  var m = String(dateStr).match(/^(\d{4})-(\d{2})/);
+  if (!m) return dateStr;
+  var month = MONTHS_ES_SHORT[parseInt(m[2], 10) - 1];
+  return 'hasta ' + month + ' ' + m[1];
 }
 
 // ============================================================
@@ -849,6 +992,7 @@ async function loadGastosView() {
   const params = new URLSearchParams({ period: state.period });
   if (state.category) params.set('category', state.category);
   if (state.user) params.set('user', state.user);
+  appendMonthParams(params);
   try {
     const res = await fetch('/api/expenses?' + params);
     const expenses = await res.json();
@@ -922,6 +1066,7 @@ async function loadCategoriasView() {
   const params = new URLSearchParams({ period: state.period });
   if (state.category) params.set('category', state.category);
   if (state.user) params.set('user', state.user);
+  appendMonthParams(params);
   try {
     const res = await fetch('/api/dashboard/summary?' + params);
     const summary = await res.json();

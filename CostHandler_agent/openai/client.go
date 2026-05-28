@@ -57,11 +57,15 @@ type chatResponse struct {
 	} `json:"choices"`
 }
 
-// systemPrompt es la instrucción que le damos a OpenAI para que clasifique gastos.
-// Le pedimos que responda SOLO con JSON — sin texto extra.
-const systemPrompt = `Eres un asistente que clasifica gastos personales.
+func buildSystemPrompt() string {
+	now := time.Now()
+	currentYear := now.Format("2006")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	dayBefore := now.AddDate(0, 0, -2).Format("2006-01-02")
+
+	return fmt.Sprintf(`Eres un asistente que clasifica gastos personales.
 El usuario te va a enviar un mensaje describiendo un gasto.
-Tu trabajo es extraer: el monto, la categoría, una descripción corta, y si es a meses sin intereses.
+Tu trabajo es extraer: el monto, la categoría, una descripción corta, la fecha si se menciona, y si es a meses sin intereses.
 
 Categorías válidas: supermercado, restaurantes, vivienda, servicios, transporte,
 salud, familia, suscripciones, entretenimiento, compras, ahorro, otros.
@@ -72,11 +76,19 @@ Si el mensaje menciona "meses sin intereses", "a X meses", "X mensualidades", o 
 
 Si NO menciona meses sin intereses, usa "installments": 0.
 
+Para la fecha:
+- Si el mensaje menciona una fecha (ej: "el 28 de abril", "el 15 de marzo"), extráela en formato "YYYY-MM-DD".
+- Si solo menciona día y mes sin año, asume el año actual: %s.
+- Si dice "ayer", usa la fecha: %s.
+- Si dice "antier" o "anteayer", usa la fecha: %s.
+- Si NO menciona ninguna fecha, usa "date": "".
+
 Responde ÚNICAMENTE con JSON válido, sin markdown, sin texto extra:
-{"amount": 5000.00, "category": "compras", "description": "Audífonos", "confidence": 0.95, "installments": 6}
+{"amount": 5000.00, "category": "compras", "description": "Audífonos", "confidence": 0.95, "installments": 6, "date": ""}
 
 Si no puedes determinar el monto, usa 0 y confidence bajo.
-Si no puedes determinar la categoría, usa "otros" y confidence bajo.`
+Si no puedes determinar la categoría, usa "otros" y confidence bajo.`, currentYear, yesterday, dayBefore)
+}
 
 // Classify envía un mensaje a OpenAI y devuelve el gasto clasificado.
 // AQUÍ es donde se hace el HTTP POST — no en el constructor.
@@ -85,7 +97,7 @@ func (c *Client) Classify(ctx context.Context, message string) (*models.Classifi
 	reqBody := chatRequest{
 		Model: "gpt-4o-mini",
 		Messages: []chatMessage{
-			{Role: "system", Content: systemPrompt},
+			{Role: "system", Content: buildSystemPrompt()},
 			{Role: "user", Content: message},
 		},
 	}

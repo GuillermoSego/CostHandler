@@ -33,6 +33,8 @@ func (h *ExpenseHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 			User:     user,
 			Period:   period,
 			Category: category,
+			From:     r.URL.Query().Get("from"),
+			To:       r.URL.Query().Get("to"),
 		}
 		if filter.Period == "" {
 			filter.Period = "month"
@@ -134,12 +136,14 @@ func (h *ExpenseHandler) HandleDashboardSummary(w http.ResponseWriter, r *http.R
 	period := r.URL.Query().Get("period")
 	user := r.URL.Query().Get("user")
 	category := r.URL.Query().Get("category")
+	fromParam := r.URL.Query().Get("from")
+	toParam := r.URL.Query().Get("to")
 
 	if period == "" {
 		period = "month"
 	}
 
-	data, err := h.serv.GetDashboardData(user, period, category)
+	data, err := h.serv.GetDashboardData(user, period, category, fromParam, toParam)
 	if err != nil {
 		http.Error(w, "error generating dashboard summary", http.StatusInternalServerError)
 		return
@@ -207,6 +211,19 @@ func (h *ExpenseHandler) HandleUserList(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(users)
 }
 
+func (h *ExpenseHandler) HandleInstallments(w http.ResponseWriter, r *http.Request) {
+	user := r.URL.Query().Get("user")
+
+	data, err := h.serv.GetInstallmentSummary(user)
+	if err != nil {
+		http.Error(w, "error fetching installment data", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
 func (h *ExpenseHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/expenses", h.HandleList)
 	mux.HandleFunc("POST /api/expenses", h.HandleCreate)
@@ -216,4 +233,5 @@ func (h *ExpenseHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/budgets", h.HandleBudgetList)
 	mux.HandleFunc("POST /api/budgets", h.HandleBudgetUpsert)
 	mux.HandleFunc("GET /api/users", h.HandleUserList)
+	mux.HandleFunc("GET /api/installments", h.HandleInstallments)
 }

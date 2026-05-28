@@ -250,7 +250,7 @@ func TestGetDashboardData(t *testing.T) {
 	svc.Create(&e1)
 	svc.Create(&e2)
 
-	data, err := svc.GetDashboardData("guillermo", "month", "")
+	data, err := svc.GetDashboardData("guillermo", "month", "", "", "")
 	if err != nil {
 		t.Fatalf("GetDashboardData() error = %v", err)
 	}

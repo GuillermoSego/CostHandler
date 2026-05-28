@@ -21,6 +21,7 @@ type ExpenseRepository interface {
 	SumByDay(user, from, to string) ([]models.DailySummary, error)
 	SumByMonth(user string, months int) ([]models.MonthlySummary, error)
 	ListDistinctUsers() ([]string, error)
+	ListInstallmentGroups(user string) ([]models.InstallmentGroupSummary, error)
 }
 
 type SQLiteExpenseRepository struct {
@@ -321,4 +322,61 @@ func (r *SQLiteExpenseRepository) ListDistinctUsers() ([]string, error) {
 		users = append(users, u)
 	}
 	return users, nil
+}
+
+func (r *SQLiteExpenseRepository) ListInstallmentGroups(user string) ([]models.InstallmentGroupSummary, error) {
+	now := timeutil.Now().Format("2006-01-02 15:04:05")
+
+	query := `SELECT
+		installment_group,
+		MIN(description) AS description,
+		category,
+		SUM(amount) AS total_amount,
+		SUM(CASE WHEN created_at <= ? THEN amount ELSE 0 END) AS paid_amount,
+		SUM(CASE WHEN created_at <= ? THEN 1 ELSE 0 END) AS paid_count,
+		COUNT(*) AS total_count,
+		amount AS per_installment,
+		MAX(created_at) AS last_payment_date,
+		user
+	FROM expenses
+	WHERE installment_group != ''`
+
+	args := []any{now, now}
+
+	if user != "" {
+		query += " AND user = ?"
+		args = append(args, user)
+	}
+
+	query += ` GROUP BY installment_group
+	HAVING paid_count < total_count
+	ORDER BY last_payment_date ASC`
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var groups []models.InstallmentGroupSummary
+	for rows.Next() {
+		var g models.InstallmentGroupSummary
+		err := rows.Scan(
+			&g.GroupID,
+			&g.Description,
+			&g.Category,
+			&g.TotalAmount,
+			&g.PaidAmount,
+			&g.PaidCount,
+			&g.TotalCount,
+			&g.PerInstallment,
+			&g.LastPaymentDate,
+			&g.User,
+		)
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
 }

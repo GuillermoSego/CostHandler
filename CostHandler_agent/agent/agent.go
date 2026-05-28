@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/GuillermoSego/costhandler/agent/models"
 	"github.com/GuillermoSego/costhandler/agent/openai"
@@ -31,6 +32,12 @@ func (a *Agent) ProcessMessage(ctx context.Context, user string, message string)
 	}
 	if result.Confidence < 0.5 {
 		return nil, fmt.Errorf("low confidence (%.2f): could not classify message reliably", result.Confidence)
+	}
+
+	if result.Date != "" {
+		if _, err := time.Parse("2006-01-02", result.Date); err != nil {
+			result.Date = ""
+		}
 	}
 
 	return result, nil
