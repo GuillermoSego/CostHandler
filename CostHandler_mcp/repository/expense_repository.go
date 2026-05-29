@@ -325,7 +325,9 @@ func (r *SQLiteExpenseRepository) ListDistinctUsers() ([]string, error) {
 }
 
 func (r *SQLiteExpenseRepository) ListInstallmentGroups(user string) ([]models.InstallmentGroupSummary, error) {
-	now := timeutil.Now().Format("2006-01-02 15:04:05")
+	now := timeutil.Now()
+	nowStr := now.Format("2006-01-02 15:04:05")
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02")
 
 	query := `SELECT
 		installment_group,
@@ -341,7 +343,7 @@ func (r *SQLiteExpenseRepository) ListInstallmentGroups(user string) ([]models.I
 	FROM expenses
 	WHERE installment_group != ''`
 
-	args := []any{now, now}
+	args := []any{nowStr, nowStr}
 
 	if user != "" {
 		query += " AND user = ?"
@@ -349,8 +351,9 @@ func (r *SQLiteExpenseRepository) ListInstallmentGroups(user string) ([]models.I
 	}
 
 	query += ` GROUP BY installment_group
-	HAVING paid_count < total_count
+	HAVING paid_count < total_count OR last_payment_date >= ?
 	ORDER BY last_payment_date ASC`
+	args = append(args, currentMonthStart)
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {

@@ -600,7 +600,7 @@ button { font-family: inherit; cursor: pointer; }
 .msi-panel { margin-bottom: 16px; }
 .msi-summary {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   padding: 0 24px 16px;
 }
@@ -648,6 +648,16 @@ button { font-family: inherit; cursor: pointer; }
   transition: width 600ms cubic-bezier(.2,.8,.2,1);
 }
 .msi-bar-label { font-size: 11px; color: var(--rp-graphite); margin-top: 6px; }
+.msi-bar__fill--done { background: var(--rp-ok, #34c759); }
+.msi-row--liquidated { opacity: .7; }
+.msi-badge-liquidado {
+  display: inline-block;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em;
+  background: #34c75922; color: #34c759;
+  padding: 2px 8px; border-radius: 1000px;
+  margin-left: 8px; vertical-align: middle;
+}
 .msi-amount { text-align: right; }
 .msi-amount__remaining {
   font-size: 16px; font-weight: 700;

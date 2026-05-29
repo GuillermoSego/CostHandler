@@ -285,7 +285,13 @@ func (s *ExpenseService) GetInstallmentSummary(user string) (*models.Installment
 		return nil, err
 	}
 
+	now := timeutil.Now()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02")
+	nextMonthStart := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02")
+
 	var totalRemaining float64
+	var currentMonthTotal float64
+	var nextMonthTotal float64
 	var debtFreeDate string
 	for i := range groups {
 		groups[i].Description = stripInstallmentSuffix(groups[i].Description)
@@ -294,16 +300,26 @@ func (s *ExpenseService) GetInstallmentSummary(user string) (*models.Installment
 		groups[i].TotalAmount = math.Round(groups[i].TotalAmount*100) / 100
 		totalRemaining += groups[i].RemainingAmount
 
+		if groups[i].LastPaymentDate >= currentMonthStart {
+			currentMonthTotal += groups[i].PerInstallment
+		}
+
+		if groups[i].LastPaymentDate >= nextMonthStart {
+			nextMonthTotal += groups[i].PerInstallment
+		}
+
 		if groups[i].LastPaymentDate > debtFreeDate {
 			debtFreeDate = groups[i].LastPaymentDate
 		}
 	}
 
 	return &models.InstallmentSummary{
-		Groups:           groups,
-		TotalRemaining:   math.Round(totalRemaining*100) / 100,
-		DebtFreeDate:     debtFreeDate,
-		ActiveGroupCount: len(groups),
+		Groups:            groups,
+		TotalRemaining:    math.Round(totalRemaining*100) / 100,
+		CurrentMonthTotal: math.Round(currentMonthTotal*100) / 100,
+		NextMonthTotal:    math.Round(nextMonthTotal*100) / 100,
+		DebtFreeDate:      debtFreeDate,
+		ActiveGroupCount:  len(groups),
 	}, nil
 }
 

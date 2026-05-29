@@ -772,21 +772,37 @@ function renderInstallments(data) {
   const sub = document.getElementById('msi-sub');
   const groups = data.groups || [];
 
-  if (!groups.length) {
+  var now = new Date();
+  var isCurrentMonth = state.period === 'month' &&
+    (!state.selectedMonth || state.selectedMonth === (now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0')));
+
+  if (!groups.length || !isCurrentMonth) {
     panel.style.display = 'none';
     return;
   }
   panel.style.display = '';
 
-  sub.textContent = groups.length + ' ' +
-    (groups.length === 1 ? 'compra activa' : 'compras activas') +
-    ' a meses sin intereses';
+  var activeCount = groups.filter(function(g) { return g.paid_count < g.total_count; }).length;
+  var liquidatedCount = groups.length - activeCount;
+  var subText = activeCount + ' ' + (activeCount === 1 ? 'compra activa' : 'compras activas');
+  if (liquidatedCount > 0) {
+    subText += ' · ' + liquidatedCount + ' ' + (liquidatedCount === 1 ? 'liquidada' : 'liquidadas') + ' este mes';
+  }
+  sub.textContent = subText;
 
   const debtFreeDate = formatDebtFreeDate(data.debt_free_date);
   summaryEl.innerHTML =
     '<div class="msi-stat">' +
       '<div class="msi-stat__label">Deuda restante</div>' +
       '<div class="msi-stat__value msi-stat__value--danger">' + formatMoney(data.total_remaining) + '</div>' +
+    '</div>' +
+    '<div class="msi-stat">' +
+      '<div class="msi-stat__label">Pagas este mes</div>' +
+      '<div class="msi-stat__value">' + formatMoney(data.current_month_total) + '</div>' +
+    '</div>' +
+    '<div class="msi-stat">' +
+      '<div class="msi-stat__label">Pagas el próximo mes</div>' +
+      '<div class="msi-stat__value">' + formatMoney(data.next_month_total) + '</div>' +
     '</div>' +
     '<div class="msi-stat">' +
       '<div class="msi-stat__label">Libre de deuda</div>' +
@@ -798,14 +814,17 @@ function renderInstallments(data) {
     var icon = catIcon(g.category);
     var pct = g.total_count > 0 ? (g.paid_count / g.total_count) * 100 : 0;
     var lastDate = formatMsiDate(g.last_payment_date);
-    return '<div class="msi-row">' +
+    var isLiquidated = g.paid_count === g.total_count;
+    var barFillClass = 'msi-bar__fill' + (isLiquidated ? ' msi-bar__fill--done' : '');
+    var liquidatedBadge = isLiquidated ? ' <span class="msi-badge-liquidado">Liquidado</span>' : '';
+    return '<div class="msi-row' + (isLiquidated ? ' msi-row--liquidated' : '') + '">' +
       '<span class="cat-chip" style="background:' + color + '1A;color:' + color + ';">' + icon + '</span>' +
       '<div>' +
-        '<div class="msi-desc">' + escapeHtml(g.description) + '</div>' +
+        '<div class="msi-desc">' + escapeHtml(g.description) + liquidatedBadge + '</div>' +
         '<div class="msi-progress-text">' + g.paid_count + ' de ' + g.total_count + ' pagos · ' + escapeHtml(lastDate) + '</div>' +
       '</div>' +
       '<div>' +
-        '<div class="msi-bar"><div class="msi-bar__fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+        '<div class="msi-bar"><div class="' + barFillClass + '" style="width:' + pct.toFixed(1) + '%"></div></div>' +
         '<div class="msi-bar-label">' + formatMoney(g.per_installment) + '/mes · ' + pct.toFixed(0) + '% pagado</div>' +
       '</div>' +
       '<div class="msi-amount">' +

@@ -53,8 +53,10 @@ type InstallmentGroupSummary struct {
 }
 
 type InstallmentSummary struct {
-	Groups           []InstallmentGroupSummary `json:"groups"`
-	TotalRemaining   float64                   `json:"total_remaining"`
-	DebtFreeDate     string                    `json:"debt_free_date"`
-	ActiveGroupCount int                       `json:"active_group_count"`
+	Groups             []InstallmentGroupSummary `json:"groups"`
+	TotalRemaining     float64                   `json:"total_remaining"`
+	CurrentMonthTotal  float64                   `json:"current_month_total"`
+	NextMonthTotal     float64                   `json:"next_month_total"`
+	DebtFreeDate       string                    `json:"debt_free_date"`
+	ActiveGroupCount   int                       `json:"active_group_count"`
 }
