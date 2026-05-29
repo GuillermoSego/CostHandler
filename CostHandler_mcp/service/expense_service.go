@@ -189,11 +189,21 @@ func (s *ExpenseService) GetDashboardData(user, period, category, fromOverride, 
 		return nil, err
 	}
 
+	var expenseCategories []models.CategorySummary
+	var savingsAmount float64
+	for _, c := range byCategory {
+		if strings.EqualFold(c.Category, "ahorro") {
+			savingsAmount = c.Total
+		} else {
+			expenseCategories = append(expenseCategories, c)
+		}
+	}
+
 	var totalAmount float64
 	var expenseCount int
 	var topCategory string
 	var topCategoryAmt float64
-	for _, c := range byCategory {
+	for _, c := range expenseCategories {
 		totalAmount += c.Total
 		expenseCount += c.Count
 		if c.Total > topCategoryAmt {
@@ -220,7 +230,9 @@ func (s *ExpenseService) GetDashboardData(user, period, category, fromOverride, 
 	}
 	var prevTotal float64
 	for _, c := range prevByCategory {
-		prevTotal += c.Total
+		if !strings.EqualFold(c.Category, "ahorro") {
+			prevTotal += c.Total
+		}
 	}
 
 	return &models.DashboardData{
@@ -229,10 +241,11 @@ func (s *ExpenseService) GetDashboardData(user, period, category, fromOverride, 
 		TopCategory:    topCategory,
 		TopCategoryAmt: math.Round(topCategoryAmt*100) / 100,
 		PrevTotal:      math.Round(prevTotal*100) / 100,
-		ByCategory:     byCategory,
+		ByCategory:     expenseCategories,
 		ByDay:          byDay,
 		ByMonth:        byMonth,
 		ExpenseCount:   expenseCount,
+		SavingsAmount:  math.Round(savingsAmount*100) / 100,
 	}, nil
 }
 

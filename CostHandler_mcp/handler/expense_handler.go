@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/GuillermoSego/costhandler/mcp/models"
 	"github.com/GuillermoSego/costhandler/mcp/service"
@@ -152,10 +154,19 @@ func (h *ExpenseHandler) HandleDashboardSummary(w http.ResponseWriter, r *http.R
 	if user != "" && h.budgetSvc != nil {
 		comparison, err := h.budgetSvc.CompareBudget(user, data.ByCategory)
 		if err == nil && comparison != nil {
-			data.BudgetComparison = comparison
+			var expenseBudgets []models.BudgetComparison
 			for _, c := range comparison {
-				data.TotalBudgeted += c.Budgeted
+				if strings.EqualFold(c.Category, "ahorro") {
+					data.SavingsBudgeted = c.Budgeted
+					if c.Budgeted > 0 {
+						data.SavingsPct = math.Round((data.SavingsAmount/c.Budgeted)*10000) / 100
+					}
+				} else {
+					expenseBudgets = append(expenseBudgets, c)
+					data.TotalBudgeted += c.Budgeted
+				}
 			}
+			data.BudgetComparison = expenseBudgets
 		}
 	}
 

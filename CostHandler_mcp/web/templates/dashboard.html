@@ -101,17 +101,32 @@
                 <p class="hero__coach" id="coach-line">·</p>
             </div>
 
-            <div class="hero__ring">
-                <svg class="ring" id="budget-ring" width="220" height="220" viewBox="0 0 220 220">
-                    <circle cx="110" cy="110" r="98" fill="none" stroke="var(--rp-bg-2)" stroke-width="20"/>
-                    <circle id="budget-ring-fg" cx="110" cy="110" r="98" fill="none" stroke="var(--rp-orange)" stroke-width="20"
-                            stroke-dasharray="615.75" stroke-dashoffset="615.75" stroke-linecap="round"
-                            transform="rotate(-90 110 110)"/>
-                </svg>
-                <div class="ring__center">
-                    <div class="ring__label" id="ring-label">Presupuesto</div>
-                    <div class="ring__value" id="ring-pct">—</div>
-                    <div class="ring__sub" id="ring-sub">·</div>
+            <div class="hero__rings">
+                <div class="hero__ring">
+                    <svg class="ring" id="budget-ring" width="180" height="180" viewBox="0 0 180 180">
+                        <circle cx="90" cy="90" r="78" fill="none" stroke="var(--rp-bg-2)" stroke-width="16"/>
+                        <circle id="budget-ring-fg" cx="90" cy="90" r="78" fill="none" stroke="var(--rp-orange)" stroke-width="16"
+                                stroke-dasharray="490.09" stroke-dashoffset="490.09" stroke-linecap="round"
+                                transform="rotate(-90 90 90)"/>
+                    </svg>
+                    <div class="ring__center">
+                        <div class="ring__label" id="ring-label">Presupuesto</div>
+                        <div class="ring__value" id="ring-pct">—</div>
+                        <div class="ring__sub" id="ring-sub">·</div>
+                    </div>
+                </div>
+                <div class="hero__ring hero__ring--savings">
+                    <svg class="ring" id="savings-ring" width="180" height="180" viewBox="0 0 180 180">
+                        <circle cx="90" cy="90" r="78" fill="none" stroke="var(--rp-bg-2)" stroke-width="16"/>
+                        <circle id="savings-ring-fg" cx="90" cy="90" r="78" fill="none" stroke="var(--rp-success)" stroke-width="16"
+                                stroke-dasharray="490.09" stroke-dashoffset="490.09" stroke-linecap="round"
+                                transform="rotate(-90 90 90)"/>
+                    </svg>
+                    <div class="ring__center">
+                        <div class="ring__label" id="savings-ring-label">Ahorro</div>
+                        <div class="ring__value" id="savings-ring-pct">—</div>
+                        <div class="ring__sub" id="savings-ring-sub">·</div>
+                    </div>
                 </div>
             </div>
         </section>

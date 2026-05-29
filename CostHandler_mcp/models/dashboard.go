@@ -36,6 +36,9 @@ type DashboardData struct {
 	ExpenseCount     int                `json:"expense_count"`
 	BudgetComparison []BudgetComparison `json:"budget_comparison"`
 	TotalBudgeted    float64            `json:"total_budgeted"`
+	SavingsAmount    float64            `json:"savings_amount"`
+	SavingsBudgeted  float64            `json:"savings_budgeted"`
+	SavingsPct       float64            `json:"savings_pct"`
 }
 
 type InstallmentGroupSummary struct {

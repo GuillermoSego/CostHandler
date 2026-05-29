@@ -291,12 +291,14 @@ function render(summary, expenses, installments) {
   const byMonth    = summary.by_month      || [];
   const budgets    = summary.budget_comparison || [];
 
-  const total      = +summary.total_amount   || 0;
-  const prev       = +summary.prev_total     || 0;
-  const dailyAvg   = +summary.daily_average  || 0;
-  const top        = summary.top_category    || '';
+  const total          = +summary.total_amount     || 0;
+  const prev           = +summary.prev_total       || 0;
+  const dailyAvg       = +summary.daily_average    || 0;
+  const top            = summary.top_category      || '';
+  const savingsAmount  = +summary.savings_amount   || 0;
+  const savingsBudget  = +summary.savings_budgeted || 0;
 
-  renderHero(total, prev, dailyAvg, budgets, byCategory);
+  renderHero(total, prev, dailyAvg, budgets, byCategory, savingsAmount, savingsBudget);
   renderInsights(total, prev, dailyAvg, budgets, byCategory, top);
   renderCategories(byCategory, budgets, total);
   renderCalendar(byDay, expenses);
@@ -308,7 +310,7 @@ function render(summary, expenses, installments) {
 // ============================================================
 // HERO
 // ============================================================
-function renderHero(total, prev, dailyAvg, budgets, byCategory) {
+function renderHero(total, prev, dailyAvg, budgets, byCategory, savingsAmount, savingsBudget) {
   // Eyebrow
   const ey = document.getElementById('hero-eyebrow');
   const selMonth = state.selectedMonth
@@ -362,6 +364,7 @@ function renderHero(total, prev, dailyAvg, budgets, byCategory) {
 
   // Budget ring
   renderBudgetRing(total, budgets);
+  renderSavingsRing(savingsAmount, savingsBudget);
 }
 
 function coachCopy(total, prev, dailyAvg, budgets) {
@@ -426,7 +429,7 @@ function renderBudgetRing(total, budgets) {
   const label  = document.getElementById('ring-label');
   const pctEl  = document.getElementById('ring-pct');
   const subEl  = document.getElementById('ring-sub');
-  const C = 2 * Math.PI * 98;
+  const C = 2 * Math.PI * 78;
   ring.setAttribute('stroke-dasharray', C.toFixed(2));
 
   if (budgetTotal > 0) {
@@ -446,6 +449,39 @@ function renderBudgetRing(total, budgets) {
     label.textContent = 'Sin presupuesto';
     pctEl.textContent = '—';
     subEl.textContent = 'Define un usuario para activarlo';
+  }
+}
+
+function renderSavingsRing(savingsAmount, savingsBudget) {
+  const ring      = document.getElementById('savings-ring-fg');
+  const label     = document.getElementById('savings-ring-label');
+  const pctEl     = document.getElementById('savings-ring-pct');
+  const subEl     = document.getElementById('savings-ring-sub');
+  const container = document.querySelector('.hero__ring--savings');
+  const C = 2 * Math.PI * 78;
+  ring.setAttribute('stroke-dasharray', C.toFixed(2));
+
+  if (savingsBudget > 0) {
+    container.style.display = '';
+    const pct = savingsAmount / savingsBudget;
+    const cap = Math.min(pct, 1);
+    ring.setAttribute('stroke-dashoffset', (C * (1 - cap)).toFixed(2));
+    ring.setAttribute('stroke', 'var(--rp-success)');
+    label.textContent = pct >= 1 ? 'Meta alcanzada' : 'Ahorro';
+    pctEl.textContent = Math.round(pct * 100) + '%';
+    const remaining = savingsBudget - savingsAmount;
+    subEl.textContent = remaining > 0
+      ? formatMoney(remaining) + ' para tu meta'
+      : formatMoney(savingsAmount) + ' ahorrados';
+  } else if (savingsAmount > 0) {
+    container.style.display = '';
+    ring.setAttribute('stroke-dashoffset', C.toFixed(2));
+    ring.setAttribute('stroke', 'var(--rp-bg-2)');
+    label.textContent = 'Ahorro';
+    pctEl.textContent = formatMoneyShort(savingsAmount);
+    subEl.textContent = 'Define una meta de ahorro';
+  } else {
+    container.style.display = 'none';
   }
 }
 

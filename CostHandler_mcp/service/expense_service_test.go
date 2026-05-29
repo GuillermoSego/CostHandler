@@ -246,9 +246,14 @@ func TestGetDashboardData(t *testing.T) {
 	e2.Description = "Uber"
 	e2.Category = models.Category{Name: "transporte"}
 	e2.Amount = 100
+	e3 := validExpense()
+	e3.Description = "Fondo emergencia"
+	e3.Category = models.Category{Name: "ahorro"}
+	e3.Amount = 5000
 
 	svc.Create(&e1)
 	svc.Create(&e2)
+	svc.Create(&e3)
 
 	data, err := svc.GetDashboardData("guillermo", "month", "", "", "")
 	if err != nil {
@@ -256,16 +261,24 @@ func TestGetDashboardData(t *testing.T) {
 	}
 
 	if data.TotalAmount != 300 {
-		t.Errorf("expected total 300, got %f", data.TotalAmount)
+		t.Errorf("expected total 300 (excluding ahorro), got %f", data.TotalAmount)
 	}
 	if data.TopCategory != "restaurantes" {
 		t.Errorf("expected top category restaurantes, got %s", data.TopCategory)
 	}
 	if data.ExpenseCount != 2 {
-		t.Errorf("expected 2 expenses, got %d", data.ExpenseCount)
+		t.Errorf("expected 2 expenses (excluding ahorro), got %d", data.ExpenseCount)
 	}
 	if len(data.ByCategory) != 2 {
-		t.Errorf("expected 2 categories, got %d", len(data.ByCategory))
+		t.Errorf("expected 2 categories (excluding ahorro), got %d", len(data.ByCategory))
+	}
+	for _, c := range data.ByCategory {
+		if c.Category == "ahorro" {
+			t.Error("ByCategory should not contain ahorro")
+		}
+	}
+	if data.SavingsAmount != 5000 {
+		t.Errorf("expected savings amount 5000, got %f", data.SavingsAmount)
 	}
 	if data.DailyAverage <= 0 {
 		t.Errorf("expected positive daily average, got %f", data.DailyAverage)

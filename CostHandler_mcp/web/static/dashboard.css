@@ -316,14 +316,19 @@ button { font-family: inherit; cursor: pointer; }
 .status-pill.is-bad  { background: var(--rp-danger-soft);  color: #B82323; }
 .status-pill svg { width: 16px; height: 16px; }
 
-/* ---- Hero ring ------------------------------------------- */
+/* ---- Hero rings ------------------------------------------ */
+.hero__rings {
+  display: flex; align-items: center; justify-content: center;
+  gap: 24px;
+}
 .hero__ring {
   position: relative;
   display: flex; align-items: center; justify-content: center;
-  min-height: 220px;
+  min-height: 180px;
 }
 .ring { display: block; transform-box: fill-box; }
-#budget-ring-fg { transition: stroke-dashoffset 700ms cubic-bezier(.2,.8,.2,1); }
+#budget-ring-fg,
+#savings-ring-fg { transition: stroke-dashoffset 700ms cubic-bezier(.2,.8,.2,1); }
 .ring__center {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
@@ -337,13 +342,13 @@ button { font-family: inherit; cursor: pointer; }
   letter-spacing: 0.08em;
 }
 .ring__value {
-  font-size: 40px; font-weight: 800;
+  font-size: 32px; font-weight: 800;
   letter-spacing: -0.02em;
-  line-height: 44px;
+  line-height: 36px;
   margin-top: 4px;
 }
 .ring__sub {
-  font-size: 14px; color: var(--rp-graphite);
+  font-size: 13px; color: var(--rp-graphite);
   margin-top: 2px;
 }
 
@@ -886,6 +891,7 @@ select.field__input {
   .insights { grid-template-columns: 1fr; }
   .hero { grid-template-columns: 1fr; padding: 24px; }
   .hero__number { font-size: 56px; line-height: 56px; }
+  .hero__rings { flex-direction: column; gap: 16px; }
   .hero__ring { justify-content: center; }
   .txn-row {
     grid-template-columns: 1fr auto;

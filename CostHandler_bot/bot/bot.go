@@ -275,11 +275,19 @@ func (b *Bot) handleResumen(message *tgbotapi.Message) {
 
 	var sb strings.Builder
 	sb.WriteString("Resumen del mes:\n\n")
-	sb.WriteString(fmt.Sprintf("💰 Total: $%.2f\n", data.TotalAmount))
+	sb.WriteString(fmt.Sprintf("💰 Total gastos: $%.2f\n", data.TotalAmount))
 	sb.WriteString(fmt.Sprintf("📊 Gastos: %d\n", data.ExpenseCount))
 	sb.WriteString(fmt.Sprintf("📅 Promedio diario: $%.2f\n", data.DailyAverage))
 	if data.TopCategory != "" {
 		sb.WriteString(fmt.Sprintf("🏆 Categoría top: %s ($%.2f)\n", data.TopCategory, data.TopCategoryAmt))
+	}
+	if data.SavingsAmount > 0 {
+		if data.SavingsBudgeted > 0 {
+			pct := (data.SavingsAmount / data.SavingsBudgeted) * 100
+			sb.WriteString(fmt.Sprintf("🐷 Ahorro: $%.2f de $%.0f (%.0f%%)\n", data.SavingsAmount, data.SavingsBudgeted, pct))
+		} else {
+			sb.WriteString(fmt.Sprintf("🐷 Ahorro: $%.2f\n", data.SavingsAmount))
+		}
 	}
 
 	if len(data.ByCategory) > 0 {
@@ -485,8 +493,11 @@ func (b *Bot) sendWeeklySummaries() {
 
 		var sb strings.Builder
 		sb.WriteString("📅 Resumen semanal:\n\n")
-		sb.WriteString(fmt.Sprintf("💰 Total de la semana: $%.2f\n", data.TotalAmount))
+		sb.WriteString(fmt.Sprintf("💰 Total gastos: $%.2f\n", data.TotalAmount))
 		sb.WriteString(fmt.Sprintf("📊 Gastos: %d\n", data.ExpenseCount))
+		if data.SavingsAmount > 0 {
+			sb.WriteString(fmt.Sprintf("🐷 Ahorro: $%.2f\n", data.SavingsAmount))
+		}
 
 		if len(data.ByCategory) > 0 {
 			sb.WriteString("\nPor categoría:\n")
